@@ -3,11 +3,19 @@ VaidCord - High-performance Discord framework inspired by Aiogram 3.x architectu
 
 This package provides a modern, type-safe, and performant way to build Discord bots
 with full support for Python 3.12+.
+
+Features:
+- Modern async/await API
+- Type-safe event handling
+- Comprehensive formatting utilities
+- HTTP client with proxy support
+- Advanced mocking for testing
+- Custom API endpoints
 """
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "VaidCord Team"
 
 # Lazy imports to avoid circular dependency issues
@@ -20,6 +28,14 @@ __lazy_imports__ = {
     "Guild": ".types",
     "Channel": ".types",
     "Formatter": ".formatting",
+    "HTTPClient": ".http",
+    "HTTPConfig": ".http",
+    "DiscordError": ".http",
+    "MockBot": ".mock",
+    "MockGateway": ".mock",
+    "MockHTTPClient": ".mock",
+    "create_mock_message": ".mock",
+    "create_mock_event": ".mock",
 }
 
 
@@ -35,13 +51,26 @@ def __getattr__(name: str):
 
 
 __all__ = [
+    # Core
     "Bot",
     "Router",
+    # Types
     "Event",
     "Message",
     "User",
     "Guild",
     "Channel",
+    # Formatting
     "Formatter",
+    # HTTP
+    "HTTPClient",
+    "HTTPConfig",
+    "DiscordError",
+    # Mocking
+    "MockBot",
+    "MockGateway",
+    "MockHTTPClient",
+    "create_mock_message",
+    "create_mock_event",
     "__version__",
 ]

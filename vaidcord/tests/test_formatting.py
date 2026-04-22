@@ -1,13 +1,12 @@
 """Tests for VaidCord formatting utilities."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from vaidcord.formatting import (
     CodeBlockLanguage,
     Formatter,
-    Mention,
     TextStyle,
     TimestampStyle,
 )
@@ -113,7 +112,7 @@ class TestTimestamps:
     """Tests for Discord timestamps."""
 
     def test_timestamp_with_datetime(self) -> None:
-        dt = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        dt = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         result = Formatter.timestamp(dt=dt, style=TimestampStyle.LONG_DATETIME)
         assert result.startswith("<t:")
         assert ":F>" in result
