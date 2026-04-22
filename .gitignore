@@ -1,52 +1,41 @@
 ```
-# Dependencies
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.pytest_cache/
-.mypy_cache/
+.Python
+env/
+venv/
+.venv/
+.ENV
+.ENV.local
+.env
+.env.local
+.env.*
+
+# Testing
 .coverage
 coverage/
 htmlcov/
-
-# Virtual environments
-venv/
-.venv/
-env/
-ENV/
+.pytest_cache/
+.mypy_cache/
 
 # Build artifacts
-dist/
 build/
+dist/
 *.egg-info/
-.installed.cfg
-*.egg
 
-# Logs
-*.log
-
-# Environment variables
-.env
-.env.local
-*.env.*
-
-# Editor files
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
+
+# OS
 .DS_Store
 Thumbs.db
 
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-.hypothesis/
-
-# Package management
-uv.lock
-*.lock
+# Logs
+*.log
 ```

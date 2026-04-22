@@ -11,11 +11,12 @@ Features:
 - HTTP client with proxy support
 - Advanced mocking for testing
 - Custom API endpoints
+- Full OAuth2 support with user authentication
 """
 
 from __future__ import annotations
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __author__ = "VaidCord Team"
 
 # Lazy imports to avoid circular dependency issues
@@ -36,6 +37,15 @@ __lazy_imports__ = {
     "MockHTTPClient": ".mock",
     "create_mock_message": ".mock",
     "create_mock_event": ".mock",
+    # OAuth2
+    "OAuth2Client": ".oauth2",
+    "UserAuthClient": ".oauth2",
+    "OAuth2Config": ".oauth2",
+    "OAuth2Token": ".oauth2",
+    "OAuth2Scope": ".oauth2",
+    "OAuth2Error": ".oauth2",
+    "IntegrationType": ".oauth2",
+    "PromptType": ".oauth2",
 }
 
 
@@ -72,5 +82,14 @@ __all__ = [
     "MockHTTPClient",
     "create_mock_message",
     "create_mock_event",
+    # OAuth2
+    "OAuth2Client",
+    "UserAuthClient",
+    "OAuth2Config",
+    "OAuth2Token",
+    "OAuth2Scope",
+    "OAuth2Error",
+    "IntegrationType",
+    "PromptType",
     "__version__",
 ]
