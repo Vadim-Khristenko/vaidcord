@@ -46,12 +46,31 @@ __lazy_imports__ = {
     "OAuth2Error": ".oauth2",
     "IntegrationType": ".oauth2",
     "PromptType": ".oauth2",
+    # Errors
+    "VaidCordError": ".errors",
+    "DiscordAPIError": ".errors",
+    "GatewayError": ".errors",
+    "VoiceGatewayError": ".errors",
+    "RateLimitError": ".errors",
+    "AuthenticationError": ".errors",
+    "ForbiddenError": ".errors",
+    "NotFoundError": ".errors",
+    "ValidationError": ".errors",
+    "GatewayOpcode": ".errors",
+    "GatewayCloseCode": ".errors",
+    "VoiceGatewayOpcode": ".errors",
+    "VoiceGatewayCloseCode": ".errors",
+    "DiscordErrorCode": ".errors",
+    "create_discord_error": ".errors",
+    "create_gateway_error": ".errors",
+    "create_voice_gateway_error": ".errors",
 }
 
 
 def __getattr__(name: str):
     if name in __lazy_imports__:
         import importlib
+
         module_path = __lazy_imports__[name]
         module = importlib.import_module(module_path, package="vaidcord")
         value = getattr(module, name)
@@ -91,5 +110,24 @@ __all__ = [
     "OAuth2Error",
     "IntegrationType",
     "PromptType",
+    # Errors
+    "VaidCordError",
+    "DiscordAPIError",
+    "GatewayError",
+    "VoiceGatewayError",
+    "RateLimitError",
+    "AuthenticationError",
+    "ForbiddenError",
+    "NotFoundError",
+    "ValidationError",
+    "GatewayOpcode",
+    "GatewayCloseCode",
+    "VoiceGatewayOpcode",
+    "VoiceGatewayCloseCode",
+    "DiscordErrorCode",
+    "create_discord_error",
+    "create_gateway_error",
+    "create_voice_gateway_error",
+    # Version
     "__version__",
 ]

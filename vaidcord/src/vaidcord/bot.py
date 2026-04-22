@@ -161,7 +161,9 @@ class Bot(Router):
         ws_url = gateway_info.get("url", self.config.gateway_url)
 
         # Connect to WebSocket
-        self._ws = await self._session.ws_connect(f"{ws_url}?v={self.config.api_version}&encoding=json")
+        self._ws = await self._session.ws_connect(
+            f"{ws_url}?v={self.config.api_version}&encoding=json"
+        )
         logger.info("Connected to Discord gateway")
 
     async def _send_payload(self, payload: dict[str, Any]) -> None:
@@ -321,7 +323,11 @@ class Bot(Router):
 
         # Parse timestamp
         ts_str = data.get("timestamp", "")
-        timestamp = datetime.fromisoformat(ts_str.replace("Z", "+00:00")) if ts_str else datetime.now()
+        timestamp = (
+            datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            if ts_str
+            else datetime.now()
+        )
 
         # Parse channel
         channel_id = int(data["channel_id"])

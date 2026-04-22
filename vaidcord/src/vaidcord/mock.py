@@ -173,12 +173,14 @@ class MockHTTPClient:
     ) -> dict[str, Any]:
         """Mock API request."""
         # Record request
-        self._request_history.append({
-            "method": method,
-            "endpoint": endpoint,
-            "kwargs": kwargs,
-            "timestamp": datetime.now(),
-        })
+        self._request_history.append(
+            {
+                "method": method,
+                "endpoint": endpoint,
+                "kwargs": kwargs,
+                "timestamp": datetime.now(),
+            }
+        )
 
         # Find matching response
         key = f"{method.upper()}:{endpoint}"
@@ -199,7 +201,9 @@ class MockHTTPClient:
                 "code": response.error_code or response.status,
                 "message": response.error_message or "Mock error",
             }
-            raise Exception(f"Mock HTTP Error {response.status}: {json.dumps(error_data)}")
+            raise Exception(
+                f"Mock HTTP Error {response.status}: {json.dumps(error_data)}"
+            )
 
         return response.data
 
@@ -283,10 +287,14 @@ class MockBot:
             The created Event object
         """
         if author is None:
-            author = User(id=123456789012345678, username="TestUser", discriminator="0000")
+            author = User(
+                id=123456789012345678, username="TestUser", discriminator="0000"
+            )
 
         if channel is None:
-            channel = Channel(id=111111111111111111, type=ChannelType.TEXT, name="test-channel")
+            channel = Channel(
+                id=111111111111111111, type=ChannelType.TEXT, name="test-channel"
+            )
 
         message = Message(
             id=222222222222222222,

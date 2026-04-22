@@ -38,7 +38,9 @@ class OAuth2Scope(str, Enum):
     APPLICATIONS_BUILDS_UPLOAD = "applications.builds.upload"
     APPLICATIONS_COMMANDS = "applications.commands"
     APPLICATIONS_COMMANDS_UPDATE = "applications.commands.update"
-    APPLICATIONS_COMMANDS_PERMISSIONS_UPDATE = "applications.commands.permissions.update"
+    APPLICATIONS_COMMANDS_PERMISSIONS_UPDATE = (
+        "applications.commands.permissions.update"
+    )
     APPLICATIONS_ENTITLEMENTS = "applications.entitlements"
     APPLICATIONS_STORE_UPDATE = "applications.store.update"
     BOT = "bot"
@@ -382,9 +384,7 @@ class OAuth2Client:
             self._current_token = token
             return token
 
-    async def refresh_access_token(
-        self, refresh_token: str
-    ) -> OAuth2Token:
+    async def refresh_access_token(self, refresh_token: str) -> OAuth2Token:
         """
         Refresh an access token using a refresh token.
 
@@ -467,7 +467,9 @@ class OAuth2Client:
             return token
 
     async def revoke_token(
-        self, token: str, token_type_hint: Literal["access_token", "refresh_token"] | None = None
+        self,
+        token: str,
+        token_type_hint: Literal["access_token", "refresh_token"] | None = None,
     ) -> None:
         """
         Revoke an access or refresh token.
@@ -500,9 +502,7 @@ class OAuth2Client:
                     message=error_data.get("message", "Unknown error"),
                 )
 
-    async def get_current_authorization(
-        self, access_token: str
-    ) -> dict[str, Any]:
+    async def get_current_authorization(self, access_token: str) -> dict[str, Any]:
         """
         Get information about the current authorization.
 
@@ -531,9 +531,7 @@ class OAuth2Client:
 
             return await response.json()
 
-    async def get_bot_application_info(
-        self, access_token: str
-    ) -> dict[str, Any]:
+    async def get_bot_application_info(self, access_token: str) -> dict[str, Any]:
         """
         Get bot application information.
 
@@ -799,9 +797,7 @@ class UserAuthClient(OAuth2Client):
 
             return await response.json()
 
-    async def get_current_user(
-        self, access_token: str
-    ) -> dict[str, Any]:
+    async def get_current_user(self, access_token: str) -> dict[str, Any]:
         """
         Get current user's information.
 

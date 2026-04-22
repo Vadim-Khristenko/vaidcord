@@ -118,7 +118,9 @@ class TestTimestamps:
         assert ":F>" in result
 
     def test_timestamp_with_unix_timestamp(self) -> None:
-        result = Formatter.timestamp(timestamp=1704110400, style=TimestampStyle.SHORT_DATE)
+        result = Formatter.timestamp(
+            timestamp=1704110400, style=TimestampStyle.SHORT_DATE
+        )
         assert result == "<t:1704110400:d>"
 
     def test_timestamp_current_time(self) -> None:

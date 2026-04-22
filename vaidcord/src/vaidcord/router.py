@@ -50,9 +50,7 @@ class Router:
         self._routers: list[Router] = []
         self._parent: Router | None = None
 
-    def _resolve_event_types(
-        self, *event_types: EventType | str
-    ) -> list[EventType]:
+    def _resolve_event_types(self, *event_types: EventType | str) -> list[EventType]:
         """Resolve event types from arguments."""
         result = []
         for et in event_types:
@@ -113,6 +111,7 @@ class Router:
             async def handle_message(event: Event):
                 ...
         """
+
         def decorator(handler: Handler) -> Handler:
             self.register_handler(
                 handler,
@@ -143,6 +142,7 @@ class Router:
             async def handle_guild_join(event: Event):
                 ...
         """
+
         def decorator(handler: Handler) -> Handler:
             self.register_handler(
                 handler,
@@ -166,7 +166,9 @@ class Router:
         if router is self:
             raise ValueError("Cannot include router into itself")
         if router._parent is not None:
-            raise ValueError(f"Router '{router.name}' is already included in another router")
+            raise ValueError(
+                f"Router '{router.name}' is already included in another router"
+            )
 
         router._parent = self
         self._routers.append(router)
