@@ -1,0 +1,45 @@
+[project]
+name = "vaidcord"
+version = "0.1.0"
+description = "High-performance Discord framework inspired by Aiogram 3.x architecture"
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.9.0",
+    "typing-extensions>=4.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.5.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vaidcord"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # Pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ASYNC", # flake8-async
+]
+ignore = []
+
+[tool.ruff.isort]
+known-first-party = ["vaidcord"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
