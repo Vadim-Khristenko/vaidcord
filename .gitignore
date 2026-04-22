@@ -1,0 +1,42 @@
+```
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environment
+.python-version
+.env
+.env.local
+.env.*
+.venv/
+venv/
+ENV/
+
+# Dependencies
+uv.lock
+
+# Compiled Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+```
