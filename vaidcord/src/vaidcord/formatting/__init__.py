@@ -230,7 +230,9 @@ class Formatter:
         """
         if multiline:
             lines = text.split("\n")
-            return "\n".join(f">>> {line}" if i == 0 else f"> {line}" for i, line in enumerate(lines))
+            return "\n".join(
+                f">>> {line}" if i == 0 else f"> {line}" for i, line in enumerate(lines)
+            )
         else:
             lines = text.split("\n")
             return "\n".join(f"> {line}" for line in lines)

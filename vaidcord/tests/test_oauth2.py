@@ -12,15 +12,14 @@ Covers:
 from __future__ import annotations
 
 import pytest
-from datetime import timedelta
 
 from vaidcord.oauth2 import (
+    IntegrationType,
     OAuth2Client,
     OAuth2Config,
+    OAuth2Error,
     OAuth2Scope,
     OAuth2Token,
-    OAuth2Error,
-    IntegrationType,
     PromptType,
     UserAuthClient,
 )
@@ -36,7 +35,7 @@ class TestOAuth2Config:
             client_secret="test_client_secret",
             redirect_uri="https://example.com/callback",
         )
-        
+
         assert config.client_id == "test_client_id"
         assert config.client_secret == "test_client_secret"
         assert config.redirect_uri == "https://example.com/callback"
@@ -50,7 +49,7 @@ class TestOAuth2Config:
             client_secret="test_client_secret",
             redirect_uri="https://example.com/callback",
         )
-        
+
         assert "oauth2/token" in config.token_url
         assert "oauth2/token/revoke" in config.revoke_url
         assert "oauth2/applications/@me" in config.app_info_url
@@ -64,7 +63,7 @@ class TestOAuth2Config:
             redirect_uri="https://example.com/callback",
             base_url="https://custom-discord.example.com/api",
         )
-        
+
         assert config.base_url == "https://custom-discord.example.com/api"
         assert config.token_url.startswith("https://custom-discord.example.com/api")
 
@@ -81,7 +80,7 @@ class TestOAuth2Token:
             refresh_token="test_refresh_token",
             scope=["identify", "guilds"],
         )
-        
+
         assert token.access_token == "test_access_token"
         assert token.token_type == "Bearer"
         assert token.expires_in == 604800
@@ -97,7 +96,7 @@ class TestOAuth2Token:
             token_type="Bearer",
             expires_in=3600,
         )
-        
+
         assert not token.is_expired
         assert token.expires_in_seconds > 3500
 
@@ -110,9 +109,9 @@ class TestOAuth2Token:
             "refresh_token": "test_refresh",
             "scope": "identify guilds",
         }
-        
+
         token = OAuth2Token.from_dict(data)
-        
+
         assert token.access_token == "test_token"
         assert token.scope == ["identify", "guilds"]
 
@@ -123,9 +122,9 @@ class TestOAuth2Token:
             token_type="Bearer",
             expires_in=604800,
         )
-        
+
         data = token.to_dict()
-        
+
         assert data["access_token"] == "test_token"
         assert data["token_type"] == "Bearer"
         assert data["expires_in"] == 604800
@@ -152,13 +151,13 @@ class TestOAuth2Client:
         """Test secure state parameter generation."""
         state1 = oauth_client.generate_state()
         state2 = oauth_client.generate_state()
-        
+
         # States should be unique
         assert state1 != state2
-        
+
         # States should have reasonable length
         assert len(state1) >= 32
-        
+
         # States should be URL-safe
         assert state1.replace("-", "").replace("_", "").isalnum()
 
@@ -168,7 +167,7 @@ class TestOAuth2Client:
             response_type="code",
             scope=[OAuth2Scope.IDENTIFY, OAuth2Scope.GUILDS],
         )
-        
+
         assert "discord.com/oauth2/authorize" in url
         assert "response_type=code" in url
         assert "client_id=test_client_id" in url
@@ -182,7 +181,7 @@ class TestOAuth2Client:
             response_type="code",
             state=custom_state,
         )
-        
+
         assert f"state={custom_state}" in url
 
     def test_build_authorization_url_bot(self, oauth_client):
@@ -193,7 +192,7 @@ class TestOAuth2Client:
             permissions=8,  # Administrator permission
             guild_id="123456789",
         )
-        
+
         assert "permissions=8" in url
         assert "guild_id=123456789" in url
 
@@ -203,14 +202,14 @@ class TestOAuth2Client:
             response_type="token",
             scope=[OAuth2Scope.IDENTIFY],
         )
-        
+
         assert "response_type=token" in url
 
     def test_parse_redirect_url_query(self, oauth_client):
         """Test parsing redirect URL with query parameters."""
         url = "https://example.com/callback?code=abc123&state=xyz789"
         params = oauth_client.parse_redirect_url(url)
-        
+
         assert params.get("code") == "abc123"
         assert params.get("state") == "xyz789"
 
@@ -218,7 +217,7 @@ class TestOAuth2Client:
         """Test parsing redirect URL with fragment (implicit grant)."""
         url = "https://example.com/callback#access_token=token123&token_type=Bearer&expires_in=604800"
         params = oauth_client.parse_redirect_url(url)
-        
+
         assert params.get("access_token") == "token123"
         assert params.get("token_type") == "Bearer"
         assert params.get("expires_in") == "604800"
@@ -226,10 +225,11 @@ class TestOAuth2Client:
     def test_basic_auth_header(self, oauth_client):
         """Test Basic authentication header generation."""
         auth_header = oauth_client._get_basic_auth()
-        
+
         assert auth_header.startswith("Basic ")
         # Should contain base64-encoded client_id:client_secret
         import base64
+
         encoded = auth_header.split(" ")[1]
         decoded = base64.b64decode(encoded).decode()
         assert decoded == "test_client_id:test_client_secret"
@@ -255,14 +255,14 @@ class TestUserAuthClient:
             username="test_user",
             password="test_password",
         )
-        
+
         assert client.username == "test_user"
         assert client.password == "test_password"
 
     def test_user_auth_inherits_oauth2(self, user_auth_config):
         """Test that UserAuthClient inherits OAuth2Client functionality."""
         client = UserAuthClient(config=user_auth_config)
-        
+
         # Should have all OAuth2Client methods
         assert hasattr(client, "build_authorization_url")
         assert hasattr(client, "exchange_code")
@@ -280,7 +280,7 @@ class TestOAuth2Error:
             code=50035,
             message="Invalid Form Body",
         )
-        
+
         assert error.status == 400
         assert error.code == 50035
         assert error.message == "Invalid Form Body"
@@ -294,9 +294,9 @@ class TestOAuth2Error:
             code=40001,
             message="Unauthorized",
         )
-        
+
         data = error.to_dict()
-        
+
         assert data["status"] == 401
         assert data["code"] == 40001
         assert data["message"] == "Unauthorized"

@@ -5,6 +5,7 @@ description = "High-performance Discord framework inspired by Aiogram 3.x archit
 requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.9.0",
+    "pytest-cov>=7.1.0",
     "typing-extensions>=4.10.0",
 ]
 
