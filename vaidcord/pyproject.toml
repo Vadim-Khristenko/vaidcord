@@ -25,6 +25,8 @@ packages = ["src/vaidcord"]
 [tool.ruff]
 target-version = "py312"
 line-length = 88
+
+[tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -35,9 +37,9 @@ select = [
     "UP",  # pyupgrade
     "ASYNC", # flake8-async
 ]
-ignore = []
+ignore = ["E501"]  # Ignore line length for now
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["vaidcord"]
 
 [tool.pytest.ini_options]
