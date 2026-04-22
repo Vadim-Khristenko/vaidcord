@@ -1,9 +1,27 @@
 ```
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.DS_Store
+Thumbs.db
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -20,23 +38,32 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
-# Environment
-.python-version
+# Pytest
+.pytest_cache/
+htmlcov/
+.coverage/
+
+# MyPy
+.mypy_cache/
+
+# VSCode
+.vscode/
+
+# IntelliJ
+.idea/
+
+# Environment variables
 .env
 .env.local
-.env.*
-.venv/
-venv/
-ENV/
+*.env.*
 
-# Dependencies
-uv.lock
-
-# Compiled Python
-**/__pycache__/
-**/*.pyc
-**/*.pyo
-**/*.pyd
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 ```

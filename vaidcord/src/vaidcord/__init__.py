@@ -10,16 +10,33 @@ from __future__ import annotations
 __version__ = "0.1.0"
 __author__ = "VaidCord Team"
 
-from .bot import Bot
-from .router import Router
-from .types import Event, Message, User, Guild, Channel
-from .dispatcher import Dispatcher
-from .formatting import Formatter
+# Lazy imports to avoid circular dependency issues
+__lazy_imports__ = {
+    "Bot": ".bot",
+    "Router": ".router",
+    "Event": ".types",
+    "Message": ".types",
+    "User": ".types",
+    "Guild": ".types",
+    "Channel": ".types",
+    "Formatter": ".formatting",
+}
+
+
+def __getattr__(name: str):
+    if name in __lazy_imports__:
+        import importlib
+        module_path = __lazy_imports__[name]
+        module = importlib.import_module(module_path, package="vaidcord")
+        value = getattr(module, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "Bot",
     "Router",
-    "Dispatcher",
     "Event",
     "Message",
     "User",
