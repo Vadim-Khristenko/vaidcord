@@ -61,17 +61,17 @@ async def main() -> None:
     """Main entry point."""
     print(f"Starting {Formatter.bold('VaidCord')} bot...")
     print(f"Formatting example: {Formatter.bold('Bold')} {Formatter.italic('Italic')}")
-    
+
     # In production, you would run the bot with:
     # bot.run()
-    
+
     # For demo purposes, we'll just show the structure
     from vaidcord.types import EventType
-    
+
     print("\nBot handlers registered:")
     print(f"  - {len(bot.get_handlers(EventType.MESSAGE_CREATE))} message handlers")
     print(f"  - {len(commands_router.get_handlers(EventType.MESSAGE_CREATE))} command handlers")
-    
+
     print("\nTo run the bot, set DISCORD_TOKEN environment variable and call bot.run()")
 
 
