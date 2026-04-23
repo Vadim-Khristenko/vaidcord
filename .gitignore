@@ -1,57 +1,53 @@
 ```
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
 .Python
-build/
-develop-eggs/
+env/
+venv/
+.venv/
+.ENV
+.ENV.*
+.venv/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage/
+htmlcov/
+
+# Build and distribution artifacts
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
+build/
 *.egg
+*.egg-info/
+*.so
+.libs/
+.pyx
 
 # Virtual environments
 venv/
 env/
 ENV/
-.venv/
-.env/
 
-# Testing
-.coverage
-coverage/
-htmlcov/
-.nosetests
-.pytest_cache/
-.hypothesis/
-
-# IDE
+# IDE and editor files
 .vscode/
 .idea/
 *.swp
 *.swo
 *.tmp
 
-# OS
-.DS_Store
-Thumbs.db
+# Logs
+*.log
 
-# Environment variables
+# Environment files
 .env
 .env.local
 *.env.*
 
-# Dependencies lock file specific to uv
-uv.lock
+# OS generated files
+.DS_Store
+Thumbs.db
 ```

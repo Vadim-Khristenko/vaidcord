@@ -907,6 +907,63 @@ class MockError(VaidCordError):
     pass
 
 
+class MissingPermissions(VaidCordError):
+    """Raised when a member lacks required permissions."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        missing_permissions: list[str] | None = None,
+        required_permissions: list[str] | None = None,
+        channel_id: str | int | None = None,
+        guild_id: str | int | None = None,
+        raw_data: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            code=50013,  # MISSING_PERMISSIONS
+            status=403,
+            raw_data=raw_data,
+        )
+        self.missing_permissions = missing_permissions or []
+        self.required_permissions = required_permissions or []
+        self.channel_id = channel_id
+        self.guild_id = guild_id
+
+
+class HierarchyError(VaidCordError):
+    """
+    Raised when an action violates Discord's role hierarchy.
+
+    This occurs when trying to perform actions on users/roles
+    that have a higher position than the bot's highest role.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        action: str | None = None,
+        target_id: str | int | None = None,
+        target_role_position: int | None = None,
+        bot_highest_role_position: int | None = None,
+        guild_id: str | int | None = None,
+        raw_data: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            code=50013,  # MISSING_PERMISSIONS (hierarchy is a permission issue)
+            status=403,
+            raw_data=raw_data,
+        )
+        self.action = action
+        self.target_id = target_id
+        self.target_role_position = target_role_position
+        self.bot_highest_role_position = bot_highest_role_position
+        self.guild_id = guild_id
+
+
 # ============================================================================
 # Error Factory
 # ============================================================================
