@@ -56,6 +56,8 @@ __lazy_imports__ = {
     "ForbiddenError": ".errors",
     "NotFoundError": ".errors",
     "ValidationError": ".errors",
+    "MissingPermissions": ".errors",
+    "HierarchyError": ".errors",
     "GatewayOpcode": ".errors",
     "GatewayCloseCode": ".errors",
     "VoiceGatewayOpcode": ".errors",
@@ -64,6 +66,12 @@ __lazy_imports__ = {
     "create_discord_error": ".errors",
     "create_gateway_error": ".errors",
     "create_voice_gateway_error": ".errors",
+    # Permissions
+    "Permissions": ".permissions",
+    "PermissionOverwrite": ".permissions",
+    "PermissionCalculator": ".permissions",
+    "calculate_permissions": ".permissions",
+    "check_permission": ".permissions",
 }
 
 
@@ -120,6 +128,8 @@ __all__ = [
     "ForbiddenError",
     "NotFoundError",
     "ValidationError",
+    "MissingPermissions",
+    "HierarchyError",
     "GatewayOpcode",
     "GatewayCloseCode",
     "VoiceGatewayOpcode",
@@ -128,6 +138,12 @@ __all__ = [
     "create_discord_error",
     "create_gateway_error",
     "create_voice_gateway_error",
+    # Permissions
+    "Permissions",
+    "PermissionOverwrite",
+    "PermissionCalculator",
+    "calculate_permissions",
+    "check_permission",
     # Version
     "__version__",
 ]
