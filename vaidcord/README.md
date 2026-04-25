@@ -218,6 +218,11 @@ router.add_filter(F.user.bot.equals(False))
 async def admin_cmd(event):
     ...
 
+# More aiogram-style expressions:
+# F.user.id == 42
+# F.message.content.regexp(r"^/item_(\\d+)$")
+# F.message.content.lower() == "ping"
+
 # Default command shortcuts
 @router.on_command_start()
 async def start(event):
