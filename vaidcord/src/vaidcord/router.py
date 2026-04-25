@@ -16,6 +16,8 @@ from vaidcord.types import Event, EventType
 
 T = TypeVar("T")
 Handler = Callable[[Event], Awaitable[Any]]
+NextHandler = Callable[[Event], Awaitable[Any]]
+Middleware = Callable[[Event, NextHandler], Awaitable[Any]]
 Filter = Callable[[Event], Awaitable[bool]]
 
 
@@ -49,6 +51,7 @@ class Router:
         self._handlers: dict[EventType, list[HandlerConfig]] = defaultdict(list)
         self._routers: list[Router] = []
         self._parent: Router | None = None
+        self._middlewares: list[Middleware] = []
 
     def _resolve_event_types(self, *event_types: EventType | str) -> list[EventType]:
         """Resolve event types from arguments."""
@@ -173,6 +176,40 @@ class Router:
         router._parent = self
         self._routers.append(router)
 
+    def add_middleware(self, middleware: Middleware) -> None:
+        """Register an event middleware for this router tree."""
+        self._middlewares.append(middleware)
+
+    def middleware(self) -> Callable[[Middleware], Middleware]:
+        """Decorator to register middleware."""
+
+        def decorator(middleware: Middleware) -> Middleware:
+            self.add_middleware(middleware)
+            return middleware
+
+        return decorator
+
+    def _resolve_middleware_chain(self) -> list[Middleware]:
+        chain: list[Middleware] = []
+        if self._parent is not None:
+            chain.extend(self._parent._resolve_middleware_chain())
+        chain.extend(self._middlewares)
+        return chain
+
+    async def _execute_with_middlewares(
+        self,
+        event: Event,
+        handler: Handler,
+    ) -> Any:
+        async def call(index: int, current_event: Event) -> Any:
+            if index >= len(chain):
+                return await handler(current_event)
+            middleware = chain[index]
+            return await middleware(current_event, lambda next_event: call(index + 1, next_event))
+
+        chain = self._resolve_middleware_chain()
+        return await call(0, event)
+
     async def propagate_event(self, event: Event) -> Any:
         """
         Propagate an event through all registered handlers.
@@ -186,6 +223,7 @@ class Router:
             The result of the last executed handler, or None
         """
         result = None
+        skipped = object()
 
         # Process handlers from child routers first
         for router in self._routers:
@@ -196,24 +234,23 @@ class Router:
         # Process handlers in this router
         handlers = self._handlers.get(event.type, [])
         for config in handlers:
-            # Check all filters
-            should_execute = True
-            for filter_func in config.filters:
-                try:
-                    if not await filter_func(event):
-                        should_execute = False
-                        break
-                except Exception:
-                    should_execute = False
-                    break
+            async def guarded_handler(current_event: Event) -> Any:
+                for filter_func in config.filters:
+                    try:
+                        if not await filter_func(current_event):
+                            return skipped
+                    except Exception:
+                        return skipped
+                return await config.handler(current_event)
 
-            if should_execute:
-                try:
-                    result = await config.handler(event)
-                except Exception as e:
-                    # In production, you'd want to log this properly
-                    print(f"Error in handler {config.handler.__name__}: {e}")
-                    raise
+            try:
+                current_result = await self._execute_with_middlewares(event, guarded_handler)
+                if current_result is not skipped:
+                    result = current_result
+            except Exception as e:
+                # In production, you'd want to log this properly
+                print(f"Error in handler {config.handler.__name__}: {e}")
+                raise
 
         return result
 
@@ -232,6 +269,34 @@ class Router:
             self._handlers.clear()
         else:
             self._handlers.pop(event_type, None)
+
+    @staticmethod
+    def state_filter(*states: str) -> Filter:
+        """
+        Build a filter that checks `event.context['fsm']` state.
+        """
+        state_set = {state for state in states}
+
+        async def _filter(event: Event) -> bool:
+            fsm = event.context.get("fsm")
+            if fsm is None:
+                return False
+            current_state = await fsm.get_state()
+            return current_state in state_set
+
+        return _filter
+
+    def on_message_state(
+        self,
+        *states: str,
+        priority: int = 0,
+        filters: list[Filter] | None = None,
+    ) -> Callable[[Handler], Handler]:
+        """
+        Decorator that handles only MESSAGE_CREATE events in specific FSM states.
+        """
+        combined_filters = [self.state_filter(*states), *(filters or [])]
+        return self.on_message(*combined_filters, priority=priority)
 
     def __repr__(self) -> str:
         return f"<Router name='{self.name}' handlers={sum(len(h) for h in self._handlers.values())}>"

@@ -25,6 +25,7 @@ __lazy_imports__ = {
     "BotState": ".bot",
     "GatewayIntent": ".bot",
     "Router": ".router",
+    "Middleware": ".router",
     "Event": ".types",
     "Message": ".types",
     "User": ".types",
@@ -74,6 +75,11 @@ __lazy_imports__ = {
     "PermissionCalculator": ".permissions",
     "calculate_permissions": ".permissions",
     "check_permission": ".permissions",
+    # FSM
+    "FSMContext": ".fsm",
+    "FSMMiddleware": ".fsm",
+    "MemoryFSMStorage": ".fsm",
+    "StorageKey": ".fsm",
 }
 
 
@@ -93,6 +99,7 @@ __all__ = [
     # Core
     "Bot",
     "Router",
+    "Middleware",
     "BotState",
     "GatewayIntent",
     # Types
@@ -148,6 +155,11 @@ __all__ = [
     "PermissionCalculator",
     "calculate_permissions",
     "check_permission",
+    # FSM
+    "FSMContext",
+    "FSMMiddleware",
+    "MemoryFSMStorage",
+    "StorageKey",
     # Version
     "__version__",
 ]
