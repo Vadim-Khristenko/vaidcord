@@ -12,13 +12,21 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
+from vaidcord.filters import (
+    CommandFilter,
+    CommandHelpFilter,
+    CommandSettingsFilter,
+    CommandStartFilter,
+    FilterLike,
+    as_filter,
+)
 from vaidcord.types import Event, EventType
 
 T = TypeVar("T")
 Handler = Callable[[Event], Awaitable[Any]]
 NextHandler = Callable[[Event], Awaitable[Any]]
 Middleware = Callable[[Event, NextHandler], Awaitable[Any]]
-Filter = Callable[[Event], Awaitable[bool]]
+Filter = FilterLike
 
 
 @dataclass
@@ -166,6 +174,56 @@ class Router:
 
         return decorator
 
+    def on_command(
+        self,
+        *commands: str,
+        priority: int = 0,
+        prefixes: tuple[str, ...] = ("/", "!", "."),
+        ignore_case: bool = True,
+        filters: list[Filter] | None = None,
+    ) -> Callable[[Handler], Handler]:
+        """Decorator for command handlers."""
+        if not commands:
+            raise ValueError("on_command requires at least one command")
+        command_filter = CommandFilter(
+            commands=tuple(commands),
+            prefixes=prefixes,
+            ignore_case=ignore_case,
+        )
+        combined_filters = [command_filter, *(filters or [])]
+        return self.on_message(*combined_filters, priority=priority)
+
+    def on_command_start(
+        self,
+        *,
+        priority: int = 0,
+        filters: list[Filter] | None = None,
+    ) -> Callable[[Handler], Handler]:
+        """Shortcut for /start command."""
+        return self.on_message(CommandStartFilter(), *(filters or []), priority=priority)
+
+    def on_command_help(
+        self,
+        *,
+        priority: int = 0,
+        filters: list[Filter] | None = None,
+    ) -> Callable[[Handler], Handler]:
+        """Shortcut for /help command."""
+        return self.on_message(CommandHelpFilter(), *(filters or []), priority=priority)
+
+    def on_command_settings(
+        self,
+        *,
+        priority: int = 0,
+        filters: list[Filter] | None = None,
+    ) -> Callable[[Handler], Handler]:
+        """Shortcut for /settings command."""
+        return self.on_message(
+            CommandSettingsFilter(),
+            *(filters or []),
+            priority=priority,
+        )
+
     def include_router(self, router: Router) -> None:
         """
         Include another router into this one.
@@ -277,7 +335,7 @@ class Router:
             async def guarded_handler(current_event: Event) -> Any:
                 for filter_func in config.filters:
                     try:
-                        if not await filter_func(current_event):
+                        if not await as_filter(filter_func)(current_event):
                             return skipped
                     except Exception:
                         return skipped
@@ -329,6 +387,11 @@ class Router:
             return current_state in state_set
 
         return _filter
+
+    @staticmethod
+    async def check_filter(event: Event, filter_obj: Filter) -> bool:
+        """Utility for middlewares: evaluate any filter type against an event."""
+        return await as_filter(filter_obj)(event)
 
     def on_message_state(
         self,
