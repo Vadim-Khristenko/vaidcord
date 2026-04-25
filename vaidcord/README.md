@@ -61,6 +61,7 @@ Now supports:
 - Router-level middlewares (including parent->child middleware chaining)
 - FSM-aware handlers via `on_message_state(...)`
 - Middleware priorities and event-scoped middleware registration
+- Powerful filters (Magic filters, Regex/User filters, custom filters, command shortcuts)
 
 ### HTTP Client
 High-performance HTTP client with:
@@ -198,6 +199,42 @@ async def capture_name(event):
 # @form_router.on_message_state("maintenance", scope=FSMScope.CHANNEL)
 # async def on_locked_channel(event):
 #     ...
+```
+
+## Powerful Filters (Aiogram-style)
+
+```python
+from vaidcord import F, RegexFilter, Router, UserFilter
+
+router = Router(name="filters")
+
+# Magic filter expression
+@router.on_message(F.message.content.startswith("!admin") & ~F.user.bot.equals(True))
+async def admin_cmd(event):
+    ...
+
+# Default command shortcuts
+@router.on_command_start()
+async def start(event):
+    ...
+
+@router.on_command_help()
+async def help_cmd(event):
+    ...
+
+@router.on_command_settings()
+async def settings(event):
+    ...
+
+# Generic command + extra filters
+@router.on_command("ban", "kick", filters=[UserFilter(user_ids={123456789})])
+async def moderation(event):
+    ...
+
+# Regex filter
+@router.on_message(RegexFilter(r"^https?://"))
+async def links(event):
+    ...
 ```
 
 ## Requirements
