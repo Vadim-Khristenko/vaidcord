@@ -31,6 +31,15 @@ class HandlerConfig:
     priority: int = 0
 
 
+@dataclass
+class MiddlewareConfig:
+    """Configuration for middleware registration."""
+
+    middleware: Middleware
+    priority: int = 0
+    event_types: list[EventType] | None = None
+
+
 class Router:
     """
     Router for organizing bot handlers.
@@ -51,7 +60,7 @@ class Router:
         self._handlers: dict[EventType, list[HandlerConfig]] = defaultdict(list)
         self._routers: list[Router] = []
         self._parent: Router | None = None
-        self._middlewares: list[Middleware] = []
+        self._middlewares: list[MiddlewareConfig] = []
 
     def _resolve_event_types(self, *event_types: EventType | str) -> list[EventType]:
         """Resolve event types from arguments."""
@@ -176,25 +185,56 @@ class Router:
         router._parent = self
         self._routers.append(router)
 
-    def add_middleware(self, middleware: Middleware) -> None:
+    def add_middleware(
+        self,
+        middleware: Middleware,
+        *,
+        priority: int = 0,
+        event_types: list[EventType] | None = None,
+    ) -> None:
         """Register an event middleware for this router tree."""
-        self._middlewares.append(middleware)
+        config = MiddlewareConfig(
+            middleware=middleware,
+            priority=priority,
+            event_types=event_types,
+        )
+        self._middlewares.append(config)
+        self._middlewares.sort(key=lambda item: item.priority, reverse=True)
 
-    def middleware(self) -> Callable[[Middleware], Middleware]:
+    def middleware(
+        self,
+        *,
+        priority: int = 0,
+        event_types: list[EventType] | None = None,
+    ) -> Callable[[Middleware], Middleware]:
         """Decorator to register middleware."""
 
         def decorator(middleware: Middleware) -> Middleware:
-            self.add_middleware(middleware)
+            self.add_middleware(
+                middleware,
+                priority=priority,
+                event_types=event_types,
+            )
             return middleware
 
         return decorator
 
-    def _resolve_middleware_chain(self) -> list[Middleware]:
-        chain: list[Middleware] = []
+    def _resolve_middleware_configs(
+        self, event_type: EventType
+    ) -> list[MiddlewareConfig]:
+        chain: list[MiddlewareConfig] = []
         if self._parent is not None:
-            chain.extend(self._parent._resolve_middleware_chain())
+            chain.extend(self._parent._resolve_middleware_configs(event_type))
         chain.extend(self._middlewares)
-        return chain
+        return [
+            item
+            for item in chain
+            if item.event_types is None or event_type in item.event_types
+        ]
+
+    def _resolve_middleware_chain(self, event_type: EventType) -> list[Middleware]:
+        configs = self._resolve_middleware_configs(event_type)
+        return [item.middleware for item in configs]
 
     async def _execute_with_middlewares(
         self,
@@ -207,7 +247,7 @@ class Router:
             middleware = chain[index]
             return await middleware(current_event, lambda next_event: call(index + 1, next_event))
 
-        chain = self._resolve_middleware_chain()
+        chain = self._resolve_middleware_chain(event.type)
         return await call(0, event)
 
     async def propagate_event(self, event: Event) -> Any:
@@ -271,14 +311,18 @@ class Router:
             self._handlers.pop(event_type, None)
 
     @staticmethod
-    def state_filter(*states: str) -> Filter:
+    def state_filter(*states: str, scope: str = "member") -> Filter:
         """
         Build a filter that checks `event.context['fsm']` state.
         """
         state_set = {state for state in states}
 
         async def _filter(event: Event) -> bool:
-            fsm = event.context.get("fsm")
+            if scope == "primary":
+                fsm = event.context.get("fsm")
+            else:
+                fsm_map = event.context.get("fsm_map", {})
+                fsm = fsm_map.get(scope)
             if fsm is None:
                 return False
             current_state = await fsm.get_state()
@@ -291,11 +335,12 @@ class Router:
         *states: str,
         priority: int = 0,
         filters: list[Filter] | None = None,
+        scope: str = "member",
     ) -> Callable[[Handler], Handler]:
         """
         Decorator that handles only MESSAGE_CREATE events in specific FSM states.
         """
-        combined_filters = [self.state_filter(*states), *(filters or [])]
+        combined_filters = [self.state_filter(*states, scope=scope), *(filters or [])]
         return self.on_message(*combined_filters, priority=priority)
 
     def __repr__(self) -> str:

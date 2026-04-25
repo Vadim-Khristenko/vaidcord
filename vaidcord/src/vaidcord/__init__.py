@@ -77,8 +77,11 @@ __lazy_imports__ = {
     "check_permission": ".permissions",
     # FSM
     "FSMContext": ".fsm",
+    "FSMManager": ".fsm",
+    "FSMScope": ".fsm",
     "FSMMiddleware": ".fsm",
     "MemoryFSMStorage": ".fsm",
+    "StateValue": ".fsm",
     "StorageKey": ".fsm",
 }
 
@@ -157,8 +160,11 @@ __all__ = [
     "check_permission",
     # FSM
     "FSMContext",
+    "FSMManager",
+    "FSMScope",
     "FSMMiddleware",
     "MemoryFSMStorage",
+    "StateValue",
     "StorageKey",
     # Version
     "__version__",
