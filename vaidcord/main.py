@@ -10,6 +10,7 @@ import asyncio
 import os
 
 from vaidcord import Bot, Event, Formatter, Router
+from vaidcord.formatting import TextStyle
 
 # Create the main bot instance
 bot = Bot(token=os.getenv("DISCORD_TOKEN", "YOUR_TOKEN_HERE"))
@@ -33,7 +34,7 @@ async def handle_help(event: Event) -> None:
     if event.message and event.message.content.lower() == "!help":
         help_text = Formatter.combine_styles(
             "VaidCord Bot Help",
-            Formatter.bold,  # type: ignore[arg-type]
+            TextStyle.BOLD,
         )
         help_text += "\n\n"
         help_text += Formatter.bold("Commands:") + "\n"

@@ -29,7 +29,7 @@ pip install vaidcord
 
 ```python
 import asyncio
-from vaincord import Bot, Formatter
+from vaidcord import Bot, Formatter
 
 bot = Bot(token="YOUR_BOT_TOKEN")
 
@@ -79,7 +79,7 @@ Advanced testing utilities:
 ### Basic Configuration
 
 ```python
-from vaincord import Bot
+from vaidcord import Bot
 
 bot = Bot(
     token="YOUR_TOKEN",
@@ -91,8 +91,8 @@ bot = Bot(
 ### Advanced Configuration with Proxy
 
 ```python
-from vaincord import Bot
-from vaincord.http import HTTPConfig, HTTPClient
+from vaidcord import Bot
+from vaidcord.http import HTTPConfig, HTTPClient
 
 config = HTTPConfig(
     token="YOUR_TOKEN",
@@ -110,7 +110,7 @@ client = HTTPClient(config)
 
 ```python
 import pytest
-from vaincord import MockBot, create_mock_message
+from vaidcord import MockBot, create_mock_message
 
 @pytest.mark.asyncio
 async def test_handler():
@@ -124,6 +124,27 @@ async def test_handler():
     await bot.simulate_message("Hello, World!")
     await bot.stop()
 ```
+
+
+## Async API & Lifecycle State Machine
+
+VaidCord now includes a higher-level async API on `Bot` and an explicit lifecycle state machine (`BotState`) to make orchestration easier in production apps.
+
+```python
+from vaidcord import Bot, BotState
+
+bot = Bot(token="YOUR_BOT_TOKEN")
+
+# Async convenience API
+async def send_startup_message() -> None:
+    if bot.state == BotState.READY and bot.user is not None:
+        await bot.send_message(channel_id=1234567890, content="Bot is online ✅")
+
+# You can also fetch and cache channels
+# channel = await bot.fetch_channel(1234567890)
+```
+
+State progression is designed to be explicit: `IDLE -> CONNECTING -> IDENTIFYING -> READY`, with `RECONNECTING` and `STOPPING/STOPPED` available for resilient runtime control flows.
 
 ## Requirements
 
