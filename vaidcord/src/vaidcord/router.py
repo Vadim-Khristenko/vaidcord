@@ -20,7 +20,7 @@ from vaidcord.filters import (
     FilterLike,
     as_filter,
 )
-from vaidcord.types import Event, EventType
+from vaidcord.types import ChannelType, Event, EventType
 
 T = TypeVar("T")
 Handler = Callable[[Event], Awaitable[Any]]
@@ -48,6 +48,15 @@ class MiddlewareConfig:
     event_types: list[EventType] | None = None
 
 
+@dataclass
+class RouterFilterConfig:
+    """Configuration for router-level (global) filters."""
+
+    filter_obj: Filter
+    priority: int = 0
+    event_types: list[EventType] | None = None
+
+
 class Router:
     """
     Router for organizing bot handlers.
@@ -69,6 +78,7 @@ class Router:
         self._routers: list[Router] = []
         self._parent: Router | None = None
         self._middlewares: list[MiddlewareConfig] = []
+        self._router_filters: list[RouterFilterConfig] = []
 
     def _resolve_event_types(self, *event_types: EventType | str) -> list[EventType]:
         """Resolve event types from arguments."""
@@ -142,6 +152,59 @@ class Router:
             return handler
 
         return decorator
+
+    def on_topic_message(
+        self,
+        *filters: Filter,
+        priority: int = 0,
+    ) -> Callable[[Handler], Handler]:
+        """
+        Handle message events coming from topic/thread-like channels.
+        """
+
+        async def _topic_filter(event: Event) -> bool:
+            channel = event.channel or (event.message.channel if event.message else None)
+            if channel is None:
+                return False
+            return channel.type in {
+                ChannelType.PUBLIC_THREAD,
+                ChannelType.PRIVATE_THREAD,
+                ChannelType.NEWS_THREAD,
+                ChannelType.FORUM,
+            }
+
+        return self.on_message(_topic_filter, *filters, priority=priority)
+
+    def on_guild_message(
+        self,
+        *filters: Filter,
+        priority: int = 0,
+    ) -> Callable[[Handler], Handler]:
+        """Handle only guild-bound messages."""
+
+        async def _guild_filter(event: Event) -> bool:
+            if event.guild is not None:
+                return True
+            if event.message is not None and event.message.guild is not None:
+                return True
+            return bool(event.data.get("guild_id"))
+
+        return self.on_message(_guild_filter, *filters, priority=priority)
+
+    def on_private_message(
+        self,
+        *filters: Filter,
+        priority: int = 0,
+    ) -> Callable[[Handler], Handler]:
+        """Handle only DM/private messages."""
+
+        async def _private_filter(event: Event) -> bool:
+            channel = event.channel or (event.message.channel if event.message else None)
+            if channel is None:
+                return False
+            return channel.type in {ChannelType.DM, ChannelType.GROUP_DM}
+
+        return self.on_message(_private_filter, *filters, priority=priority)
 
     def on_event(
         self,
@@ -243,6 +306,53 @@ class Router:
         router._parent = self
         self._routers.append(router)
 
+    def add_filter(
+        self,
+        filter_obj: Filter,
+        *,
+        priority: int = 0,
+        event_types: list[EventType] | None = None,
+    ) -> None:
+        """Add a global router filter applied to all handlers."""
+        config = RouterFilterConfig(
+            filter_obj=filter_obj,
+            priority=priority,
+            event_types=event_types,
+        )
+        self._router_filters.append(config)
+        self._router_filters.sort(key=lambda item: item.priority, reverse=True)
+
+    def router_filter(
+        self,
+        *,
+        priority: int = 0,
+        event_types: list[EventType] | None = None,
+    ) -> Callable[[Filter], Filter]:
+        """Decorator to register router-level filter."""
+
+        def decorator(filter_obj: Filter) -> Filter:
+            self.add_filter(
+                filter_obj=filter_obj,
+                priority=priority,
+                event_types=event_types,
+            )
+            return filter_obj
+
+        return decorator
+
+    def _resolve_router_filter_configs(
+        self, event_type: EventType
+    ) -> list[RouterFilterConfig]:
+        chain: list[RouterFilterConfig] = []
+        if self._parent is not None:
+            chain.extend(self._parent._resolve_router_filter_configs(event_type))
+        chain.extend(self._router_filters)
+        return [
+            item
+            for item in chain
+            if item.event_types is None or event_type in item.event_types
+        ]
+
     def add_middleware(
         self,
         middleware: Middleware,
@@ -331,9 +441,12 @@ class Router:
 
         # Process handlers in this router
         handlers = self._handlers.get(event.type, [])
+        router_filters = [
+            item.filter_obj for item in self._resolve_router_filter_configs(event.type)
+        ]
         for config in handlers:
             async def guarded_handler(current_event: Event) -> Any:
-                for filter_func in config.filters:
+                for filter_func in [*router_filters, *config.filters]:
                     try:
                         if not await as_filter(filter_func)(current_event):
                             return skipped

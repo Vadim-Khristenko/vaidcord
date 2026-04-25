@@ -26,6 +26,7 @@ __lazy_imports__ = {
     "GatewayIntent": ".bot",
     "Router": ".router",
     "Middleware": ".router",
+    "RouterFilterConfig": ".router",
     # Filters
     "F": ".filters",
     "FilterExpr": ".filters",
@@ -114,6 +115,7 @@ __all__ = [
     "Bot",
     "Router",
     "Middleware",
+    "RouterFilterConfig",
     "F",
     "FilterExpr",
     "MagicFilter",

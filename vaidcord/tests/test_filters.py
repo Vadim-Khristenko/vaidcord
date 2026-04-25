@@ -40,6 +40,20 @@ def _event_with_text(text: str, user_id: int = 10, username: str = "tester") -> 
     )
 
 
+def _event_with_channel_type(text: str, channel_type: ChannelType, guild_id: str | None) -> Event:
+    event = _event_with_text(text)
+    event.channel = Channel(id=event.channel.id, type=channel_type)
+    event.message = Message(
+        id=event.message.id,
+        channel=event.channel,
+        author=event.message.author,
+        content=event.message.content,
+        timestamp=event.message.timestamp,
+    )
+    event.data = {"guild_id": guild_id} if guild_id is not None else {}
+    return event
+
+
 @pytest.mark.asyncio
 async def test_magic_filters_composition() -> None:
     event = _event_with_text("!admin ping")
@@ -99,3 +113,52 @@ async def test_router_command_shortcuts_and_middleware_filter_check() -> None:
 async def test_as_filter_accepts_plain_callables() -> None:
     event = _event_with_text("abc")
     assert await as_filter(lambda e: e.message.content == "abc")(event) is True
+
+
+@pytest.mark.asyncio
+async def test_router_global_filter_applies_to_all_handlers() -> None:
+    router = Router()
+    hits: list[str] = []
+    router.add_filter(F.message.content.contains("ok"))
+
+    @router.on_message()
+    async def first(event: Event) -> None:
+        hits.append("first")
+
+    @router.on_command("ping")
+    async def second(event: Event) -> None:
+        hits.append("second")
+
+    await router.propagate_event(_event_with_text("!ping"))
+    assert hits == []
+
+    await router.propagate_event(_event_with_text("ok !ping"))
+    assert hits == ["first"]
+
+    await router.propagate_event(_event_with_text("!ping ok"))
+    assert hits == ["first", "first", "second"]
+
+
+@pytest.mark.asyncio
+async def test_specialized_message_handlers() -> None:
+    router = Router()
+    hits: list[str] = []
+
+    @router.on_topic_message()
+    async def topic(event: Event) -> None:
+        hits.append("topic")
+
+    @router.on_private_message()
+    async def private(event: Event) -> None:
+        hits.append("private")
+
+    @router.on_guild_message()
+    async def guild(event: Event) -> None:
+        hits.append("guild")
+
+    await router.propagate_event(
+        _event_with_channel_type("t", ChannelType.PUBLIC_THREAD, guild_id="500")
+    )
+    await router.propagate_event(_event_with_channel_type("d", ChannelType.DM, guild_id=None))
+
+    assert hits == ["topic", "guild", "private"]
