@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 import aiohttp
@@ -27,6 +28,18 @@ from vaidcord.types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class BotState(Enum):
+    """Lifecycle states for the bot connection."""
+
+    IDLE = "idle"
+    CONNECTING = "connecting"
+    IDENTIFYING = "identifying"
+    READY = "ready"
+    RECONNECTING = "reconnecting"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
 
 
 @dataclass
@@ -82,11 +95,13 @@ class Bot(Router):
         self._session_id: str | None = None
         self._heartbeat_interval: float | None = None
         self._heartbeat_task: asyncio.Task | None = None
+        self._state = BotState.IDLE
 
         # Cache for guilds, users, channels
         self._guilds: dict[int, Guild] = {}
         self._users: dict[int, User] = {}
         self._channels: dict[int, Channel] = {}
+        self._user: User | None = None
 
         # Event handlers for internal events
         self._ready_event = asyncio.Event()
@@ -97,9 +112,14 @@ class Bot(Router):
         return self._ready_event.is_set()
 
     @property
+    def state(self) -> BotState:
+        """Current lifecycle state."""
+        return self._state
+
+    @property
     def user(self) -> User | None:
         """Get the bot's user object."""
-        return self._users.get(self.config.shard_id)  # Simplified for now
+        return self._user
 
     @property
     def guilds(self) -> list[Guild]:
@@ -153,6 +173,7 @@ class Bot(Router):
 
     async def _connect_gateway(self) -> None:
         """Connect to the Discord gateway."""
+        self._state = BotState.CONNECTING
         if self._session is None:
             await self._create_session()
 
@@ -173,6 +194,7 @@ class Bot(Router):
 
     async def _identify(self) -> None:
         """Send the identify payload to authenticate."""
+        self._state = BotState.IDENTIFYING
         payload = {
             "op": 2,  # Identify
             "d": {
@@ -255,6 +277,7 @@ class Bot(Router):
         """Handle the READY event."""
         user_data = data.get("user", {})
         bot_user = self._parse_user(user_data)
+        self._user = bot_user
         self._users[bot_user.id] = bot_user
 
         # Cache guilds
@@ -263,6 +286,7 @@ class Bot(Router):
             self._guilds[guild.id] = guild
 
         self._session_id = data.get("session_id")
+        self._state = BotState.READY
         self._ready_event.set()
         logger.info(f"Bot logged in as {bot_user.username}")
 
@@ -376,6 +400,7 @@ class Bot(Router):
                     await self._handle_dispatch(data)
                 elif op == 9:  # Invalid Session
                     logger.warning("Invalid session, reidentifying...")
+                    self._state = BotState.RECONNECTING
                     await asyncio.sleep(5)
                     await self._identify()
                 elif op == 10:  # Hello
@@ -398,6 +423,7 @@ class Bot(Router):
             raise RuntimeError("Bot is already running")
 
         self._running = True
+        self._state = BotState.CONNECTING
         logger.info("Starting bot...")
 
         try:
@@ -411,6 +437,7 @@ class Bot(Router):
     async def stop(self) -> None:
         """Stop the bot client."""
         self._running = False
+        self._state = BotState.STOPPING
         self._ready_event.clear()
 
         if self._heartbeat_task:
@@ -422,7 +449,37 @@ class Bot(Router):
             self._ws = None
 
         await self._close_session()
+        self._state = BotState.STOPPED
         logger.info("Bot stopped")
+
+    async def send_message(
+        self,
+        channel_id: int,
+        content: str,
+        *,
+        tts: bool = False,
+        embeds: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Send a message with a convenient async API.
+
+        This method is a higher-level wrapper around the raw HTTP request.
+        """
+        payload: dict[str, Any] = {"content": content, "tts": tts}
+        if embeds:
+            payload["embeds"] = embeds
+        return await self.request(
+            "POST",
+            f"/channels/{channel_id}/messages",
+            json=payload,
+        )
+
+    async def fetch_channel(self, channel_id: int) -> Channel:
+        """Fetch and parse a channel from the API."""
+        data = await self.request("GET", f"/channels/{channel_id}")
+        channel = self._parse_channel(data)
+        self._channels[channel.id] = channel
+        return channel
 
     def run(self) -> None:
         """Run the bot (blocking)."""

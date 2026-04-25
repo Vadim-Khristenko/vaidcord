@@ -20,7 +20,7 @@ from enum import Enum
 from typing import Any
 
 import aiohttp
-from aiohttp import ClientResponse, ClientSession, TCPConnector
+from aiohttp import ClientSession, TCPConnector
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +133,15 @@ class HTTPConfig:
             self.user_agent = "DiscordBot (https://github.com/vaidcord/vaidcord, 0.1.0)"
 
 
+@dataclass
+class HTTPResponseData:
+    """In-memory HTTP response payload captured before context exit."""
+
+    status: int
+    headers: dict[str, str]
+    body: bytes
+
+
 class HTTPClient:
     """
     High-performance HTTP client for Discord API.
@@ -220,7 +229,7 @@ class HTTPClient:
         method: str,
         endpoint: str,
         **kwargs: Any,
-    ) -> ClientResponse:
+    ) -> HTTPResponseData:
         """Make a request with automatic retries."""
         last_exception: Exception | None = None
 
@@ -253,7 +262,12 @@ class HTTPClient:
                             await asyncio.sleep(delay)
                             continue
 
-                    return response
+                    body = await response.read()
+                    return HTTPResponseData(
+                        status=response.status,
+                        headers=dict(response.headers),
+                        body=body,
+                    )
 
             except (TimeoutError, aiohttp.ClientError) as e:
                 last_exception = e
@@ -304,9 +318,12 @@ class HTTPClient:
         # Handle error responses
         if response.status >= 400:
             try:
-                error_data = await response.json()
-            except (json.JSONDecodeError, aiohttp.ContentTypeError):
-                error_data = {"code": response.status, "message": await response.text()}
+                error_data = json.loads(response.body.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                error_data = {
+                    "code": response.status,
+                    "message": response.body.decode("utf-8", errors="replace"),
+                }
 
             discord_error = DiscordError.from_response(response.status, error_data)
             logger.error(f"Discord API error: {discord_error}")
@@ -316,7 +333,9 @@ class HTTPClient:
         if response.status == 204:
             return {}
 
-        return await response.json()
+        if not response.body:
+            return {}
+        return json.loads(response.body.decode("utf-8"))
 
     async def get(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
         """Make a GET request."""

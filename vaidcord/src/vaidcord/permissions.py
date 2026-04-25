@@ -401,6 +401,7 @@ class PermissionCalculator:
         base_permissions: Permissions,
         member: Member,
         channel: Channel,
+        guild_id: int | None = None,
     ) -> Permissions:
         """
         Apply permission overwrites to base permissions.
@@ -424,11 +425,16 @@ class PermissionCalculator:
 
         permissions = base_permissions
 
-        # Get overwrites for this channel
-        overwrites = channel.permission_overwrites or {}
+        # Get overwrites for this channel.
+        # Discord API returns a list, but callers may already provide a mapping.
+        raw_overwrites = channel.permission_overwrites or []
+        overwrites = PermissionCalculator._normalize_overwrites(raw_overwrites)
+
+        if guild_id is None:
+            guild_id = getattr(channel, "guild_id", None)
 
         # Apply @everyone overwrite first
-        everyone_overwrite = overwrites.get(channel.guild_id)
+        everyone_overwrite = overwrites.get(guild_id) if guild_id is not None else None
         if everyone_overwrite:
             permissions = permissions.remove(everyone_overwrite.deny)
             permissions = permissions.add(everyone_overwrite.allow)
@@ -456,9 +462,34 @@ class PermissionCalculator:
         return permissions
 
     @staticmethod
+    def _normalize_overwrites(
+        overwrites: list[dict] | dict[int, PermissionOverwrite],
+    ) -> dict[int, PermissionOverwrite]:
+        """Normalize overwrite payload into id -> PermissionOverwrite mapping."""
+        if isinstance(overwrites, dict):
+            return {
+                int(overwrite_id): (
+                    overwrite
+                    if isinstance(overwrite, PermissionOverwrite)
+                    else PermissionOverwrite.from_dict(overwrite)
+                )
+                for overwrite_id, overwrite in overwrites.items()
+            }
+
+        return {
+            int(overwrite_data["id"]): (
+                overwrite_data
+                if isinstance(overwrite_data, PermissionOverwrite)
+                else PermissionOverwrite.from_dict(overwrite_data)
+            )
+            for overwrite_data in overwrites
+        }
+
+    @staticmethod
     def compute_effective_permissions(
         member: Member,
         channel: Channel,
+        guild: Guild | None = None,
     ) -> Permissions:
         """
         Compute the final effective permissions for a member in a channel.
@@ -472,11 +503,19 @@ class PermissionCalculator:
         Returns:
             Effective permissions after all calculations
         """
-        base = PermissionCalculator.compute_base_permissions(member, channel.guild)
+        resolved_guild = guild or getattr(channel, "guild", None)
+        if resolved_guild is None:
+            raise ValueError(
+                "Guild context is required to compute permissions. "
+                "Pass guild explicitly or provide channel.guild."
+            )
+
+        base = PermissionCalculator.compute_base_permissions(member, resolved_guild)
         return PermissionCalculator.compute_overwrites(
             base,
             member,
             channel,
+            guild_id=resolved_guild.id,
         )
 
     @staticmethod
@@ -537,7 +576,11 @@ class PermissionCalculator:
         return implicit_deny
 
 
-def calculate_permissions(member: Member, channel: Channel) -> Permissions:
+def calculate_permissions(
+    member: Member,
+    channel: Channel,
+    guild: Guild | None = None,
+) -> Permissions:
     """
     Convenience function to calculate effective permissions.
 
@@ -548,13 +591,14 @@ def calculate_permissions(member: Member, channel: Channel) -> Permissions:
     Returns:
         Effective permissions
     """
-    return PermissionCalculator.compute_effective_permissions(member, channel)
+    return PermissionCalculator.compute_effective_permissions(member, channel, guild=guild)
 
 
 def check_permission(
     member: Member,
     channel: Channel,
     required: Permissions,
+    guild: Guild | None = None,
 ) -> bool:
     """
     Check if a member has a specific permission in a channel.
@@ -567,5 +611,5 @@ def check_permission(
     Returns:
         True if member has all required permissions
     """
-    effective = calculate_permissions(member, channel)
+    effective = calculate_permissions(member, channel, guild=guild)
     return effective.has(required)

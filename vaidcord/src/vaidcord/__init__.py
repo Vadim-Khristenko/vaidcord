@@ -16,12 +16,13 @@ Features:
 
 from __future__ import annotations
 
-__version__ = "0.3.0"
+__version__ = "0.1.0"
 __author__ = "VaidCord Team"
 
 # Lazy imports to avoid circular dependency issues
 __lazy_imports__ = {
     "Bot": ".bot",
+    "BotState": ".bot",
     "Router": ".router",
     "Event": ".types",
     "Message": ".types",
@@ -91,6 +92,7 @@ __all__ = [
     # Core
     "Bot",
     "Router",
+    "BotState",
     # Types
     "Event",
     "Message",

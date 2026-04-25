@@ -450,6 +450,44 @@ class TestConvenienceFunctions:
         # Should not have MANAGE_MESSAGES
         assert not check_permission(member, channel, Permissions.MANAGE_MESSAGES)
 
+    def test_calculate_permissions_with_explicit_guild_and_list_overwrites(self):
+        """Test calculate_permissions supports API-style list overwrites."""
+        class MockRole:
+            id = 456
+            permissions = str(Permissions.VIEW_CHANNEL.value)
+
+        class MockMember:
+            is_timed_out = lambda self: False
+            id = 123
+            roles = [MockRole()]
+
+        class MockGuild:
+            id = 789
+
+            def is_owner(self, member):
+                return False
+
+            def get_role(self, role_id):
+                if role_id == 789:
+                    class EveryoneRole:
+                        permissions = str(Permissions.VIEW_CHANNEL.value)
+
+                    return EveryoneRole()
+                return None
+
+        class MockChannel:
+            permission_overwrites = [
+                {
+                    "id": "789",
+                    "type": 0,
+                    "allow": "2048",  # SEND_MESSAGES
+                    "deny": "0",
+                }
+            ]
+
+        perms = calculate_permissions(MockMember(), MockChannel(), guild=MockGuild())
+        assert perms.has(Permissions.SEND_MESSAGES)
+
 
 class TestChannelSpecificPermissions:
     """Test channel-type specific permissions."""
