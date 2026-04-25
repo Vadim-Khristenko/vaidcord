@@ -23,6 +23,7 @@ __author__ = "VaidCord Team"
 __lazy_imports__ = {
     "Bot": ".bot",
     "BotState": ".bot",
+    "GatewayIntent": ".bot",
     "Router": ".router",
     "Event": ".types",
     "Message": ".types",
@@ -93,6 +94,7 @@ __all__ = [
     "Bot",
     "Router",
     "BotState",
+    "GatewayIntent",
     # Types
     "Event",
     "Message",

@@ -29,15 +29,20 @@ pip install vaidcord
 
 ```python
 import asyncio
-from vaidcord import Bot, Formatter
+from vaidcord import Bot, Formatter, GatewayIntent
 
-bot = Bot(token="YOUR_BOT_TOKEN")
+bot = Bot(
+    token="YOUR_BOT_TOKEN",
+    intents=GatewayIntent.GUILDS | GatewayIntent.GUILD_MESSAGES,
+)
 
 @bot.on_message()
 async def handle_message(event):
     if event.message.content == "!hello":
-        await event.message.channel.send(
-            Formatter.bold(f"Hello, {event.message.author.mention}!")
+        await bot.reply(
+            channel_id=event.message.channel_id,
+            message_id=event.message.id,
+            content=Formatter.bold(f"Hello, {event.message.author.mention}!"),
         )
 
 if __name__ == "__main__":
@@ -137,8 +142,16 @@ bot = Bot(token="YOUR_BOT_TOKEN")
 
 # Async convenience API
 async def send_startup_message() -> None:
-    if bot.state == BotState.READY and bot.user is not None:
+    if await bot.wait_until_ready(wait_timeout=15) and bot.user is not None:
         await bot.send_message(channel_id=1234567890, content="Bot is online ✅")
+
+# Typing indicators and richer message payloads are supported, too:
+# await bot.trigger_typing(1234567890)
+# await bot.send_message(
+#     1234567890,
+#     components=[{"type": 1, "components": [...]}],
+#     allowed_mentions={"parse": []},
+# )
 
 # You can also fetch and cache channels
 # channel = await bot.fetch_channel(1234567890)
