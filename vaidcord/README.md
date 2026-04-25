@@ -60,6 +60,7 @@ Modular event handler organization, similar to Aiogram's router system.
 Now supports:
 - Router-level middlewares (including parent->child middleware chaining)
 - FSM-aware handlers via `on_message_state(...)`
+- Middleware priorities and event-scoped middleware registration
 
 ### HTTP Client
 High-performance HTTP client with:
@@ -166,7 +167,7 @@ State progression is designed to be explicit: `IDLE -> CONNECTING -> IDENTIFYING
 ## FSM + Middleware Routing
 
 ```python
-from vaidcord import Bot, FSMMiddleware, Router
+from vaidcord import Bot, FSMMiddleware, FSMScope, Router
 
 bot = Bot(token="YOUR_BOT_TOKEN")
 form_router = Router(name="form")
@@ -185,6 +186,18 @@ async def capture_name(event):
     fsm = event.context["fsm"]
     await fsm.update_data(name=event.message.content)
     await fsm.set_state("form:done")
+
+# You also get multiple policy scopes in event.context["fsm_map"]:
+# - FSMScope.USER
+# - FSMScope.CHANNEL
+# - FSMScope.TOPIC
+# - FSMScope.GUILD
+# - FSMScope.MEMBER
+#
+# Example of channel-scoped state handler:
+# @form_router.on_message_state("maintenance", scope=FSMScope.CHANNEL)
+# async def on_locked_channel(event):
+#     ...
 ```
 
 ## Requirements
