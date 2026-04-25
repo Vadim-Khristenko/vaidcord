@@ -251,6 +251,7 @@ class Event:
     user: User | None = None
     guild: Guild | None = None
     channel: Channel | None = None
+    context: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_message_event(self) -> bool:

@@ -57,6 +57,10 @@ The main entry point for your Discord bot. Handles WebSocket connections, event 
 ### Router
 Modular event handler organization, similar to Aiogram's router system.
 
+Now supports:
+- Router-level middlewares (including parent->child middleware chaining)
+- FSM-aware handlers via `on_message_state(...)`
+
 ### HTTP Client
 High-performance HTTP client with:
 - Automatic rate limit handling
@@ -158,6 +162,30 @@ async def send_startup_message() -> None:
 ```
 
 State progression is designed to be explicit: `IDLE -> CONNECTING -> IDENTIFYING -> READY`, with `RECONNECTING` and `STOPPING/STOPPED` available for resilient runtime control flows.
+
+## FSM + Middleware Routing
+
+```python
+from vaidcord import Bot, FSMMiddleware, Router
+
+bot = Bot(token="YOUR_BOT_TOKEN")
+form_router = Router(name="form")
+form_router.add_middleware(FSMMiddleware())
+bot.include_router(form_router)
+
+@form_router.on_message()
+async def start_form(event):
+    if event.message.content == "!start":
+        fsm = event.context["fsm"]
+        await fsm.set_state("form:name")
+        await bot.send_message(event.message.channel_id, "What's your name?")
+
+@form_router.on_message_state("form:name")
+async def capture_name(event):
+    fsm = event.context["fsm"]
+    await fsm.update_data(name=event.message.content)
+    await fsm.set_state("form:done")
+```
 
 ## Requirements
 
