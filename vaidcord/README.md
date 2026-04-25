@@ -62,6 +62,8 @@ Now supports:
 - FSM-aware handlers via `on_message_state(...)`
 - Middleware priorities and event-scoped middleware registration
 - Powerful filters (Magic filters, Regex/User filters, custom filters, command shortcuts)
+- Specialized handlers: `on_topic_message`, `on_guild_message`, `on_private_message`
+- Router-wide global filters via `add_filter(...)` / `@router.router_filter(...)`
 
 ### HTTP Client
 High-performance HTTP client with:
@@ -208,6 +210,9 @@ from vaidcord import F, RegexFilter, Router, UserFilter
 
 router = Router(name="filters")
 
+# Router-wide filter (applies to ALL handlers in this router)
+router.add_filter(F.user.bot.equals(False))
+
 # Magic filter expression
 @router.on_message(F.message.content.startswith("!admin") & ~F.user.bot.equals(True))
 async def admin_cmd(event):
@@ -229,6 +234,16 @@ async def settings(event):
 # Generic command + extra filters
 @router.on_command("ban", "kick", filters=[UserFilter(user_ids={123456789})])
 async def moderation(event):
+    ...
+
+# Topic/thread-only messages
+@router.on_topic_message()
+async def topic_handler(event):
+    ...
+
+# Private messages only
+@router.on_private_message()
+async def dm_handler(event):
     ...
 
 # Regex filter
