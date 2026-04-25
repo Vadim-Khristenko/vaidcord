@@ -12,7 +12,7 @@ from typing import Any, Protocol, TypeAlias
 
 from vaidcord.types import Event
 
-FilterResult: TypeAlias = bool | Awaitable[bool]
+FilterResult: TypeAlias = bool | dict[str, Any] | Awaitable[bool | dict[str, Any]]
 FilterCallable: TypeAlias = Callable[[Event], FilterResult]
 
 
@@ -38,8 +38,27 @@ async def run_filter(filter_obj: SupportsFilter | FilterCallable, event: Event) 
     """Run sync or async filter callables uniformly."""
     result = filter_obj(event)
     if inspect.isawaitable(result):
-        return bool(await result)
+        result = await result
+    if isinstance(result, dict):
+        return True
     return bool(result)
+
+
+async def run_filter_with_data(
+    filter_obj: SupportsFilter | FilterCallable,
+    event: Event,
+) -> tuple[bool, dict[str, Any]]:
+    """
+    Run filter and capture propagated data.
+
+    Aiogram-like behavior: dict means "filter passed + inject data".
+    """
+    result = filter_obj(event)
+    if inspect.isawaitable(result):
+        result = await result
+    if isinstance(result, dict):
+        return True, result
+    return bool(result), {}
 
 
 @dataclass(frozen=True)
@@ -93,18 +112,58 @@ class MagicFilter:
 
     def __init__(self, path: str = "") -> None:
         self._path = path
+        self._modifier: Callable[[Any], Any] | None = None
 
     def __getattr__(self, name: str) -> MagicFilter:
         path = f"{self._path}.{name}" if self._path else name
         return MagicFilter(path)
 
-    def _cmp(self, op: Callable[[Any], bool]) -> FilterExpr:
-        path = self._path
+    def _with_modifier(self, modifier: Callable[[Any], Any]) -> MagicFilter:
+        result = MagicFilter(self._path)
+        result._modifier = modifier
+        return result
 
+    def _extract(self, event: Event) -> Any:
+        value = _resolve_path(event, self._path)
+        if self._modifier is not None:
+            try:
+                return self._modifier(value)
+            except Exception:
+                return None
+        return value
+
+    async def __call__(self, event: Event) -> bool:
+        return bool(self._extract(event))
+
+    def resolve(self, event: Event) -> Any:
+        return self._extract(event)
+
+    def _cmp(self, op: Callable[[Any], bool]) -> FilterExpr:
         async def _filter(event: Event) -> bool:
-            return op(_resolve_path(event, path))
+            return op(self._extract(event))
 
         return FilterExpr(_filter)
+
+    def __eq__(self, value: Any) -> FilterExpr:  # type: ignore[override]
+        return self.equals(value)
+
+    def __ne__(self, value: Any) -> FilterExpr:  # type: ignore[override]
+        return self._cmp(lambda current: current != value)
+
+    def __lt__(self, value: Any) -> FilterExpr:
+        return self._cmp(lambda current: current is not None and current < value)
+
+    def __le__(self, value: Any) -> FilterExpr:
+        return self._cmp(lambda current: current is not None and current <= value)
+
+    def __gt__(self, value: Any) -> FilterExpr:
+        return self._cmp(lambda current: current is not None and current > value)
+
+    def __ge__(self, value: Any) -> FilterExpr:
+        return self._cmp(lambda current: current is not None and current >= value)
+
+    def __matmul__(self, values: Iterable[Any]) -> FilterExpr:
+        return self.in_(values)
 
     def equals(self, value: Any) -> FilterExpr:
         return self._cmp(lambda current: current == value)
@@ -122,9 +181,29 @@ class MagicFilter:
         regex = re.compile(pattern, flags)
         return self._cmp(lambda current: isinstance(current, str) and regex.search(current) is not None)
 
+    def regexp(self, pattern: str, flags: int = 0) -> FilterExpr:
+        """Alias used in aiogram docs."""
+        return self.regex(pattern, flags=flags)
+
     def in_(self, values: Iterable[Any]) -> FilterExpr:
         value_set = set(values)
         return self._cmp(lambda current: current in value_set)
+
+    def func(self, callback: Callable[[Any], bool]) -> FilterExpr:
+        return self._cmp(lambda current: callback(current))
+
+    def lower(self) -> MagicFilter:
+        return self._with_modifier(
+            lambda current: current.lower() if isinstance(current, str) else None
+        )
+
+    def upper(self) -> MagicFilter:
+        return self._with_modifier(
+            lambda current: current.upper() if isinstance(current, str) else None
+        )
+
+    def len(self) -> MagicFilter:
+        return self._with_modifier(lambda current: len(current) if current is not None else 0)
 
 
 F = MagicFilter()

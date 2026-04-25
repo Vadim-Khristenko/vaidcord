@@ -19,6 +19,7 @@ from vaidcord.filters import (
     CommandStartFilter,
     FilterLike,
     as_filter,
+    run_filter_with_data,
 )
 from vaidcord.types import ChannelType, Event, EventType
 
@@ -446,12 +447,18 @@ class Router:
         ]
         for config in handlers:
             async def guarded_handler(current_event: Event) -> Any:
+                filter_data: dict[str, Any] = {}
                 for filter_func in [*router_filters, *config.filters]:
                     try:
-                        if not await as_filter(filter_func)(current_event):
+                        passed, data = await run_filter_with_data(filter_func, current_event)
+                        if data:
+                            filter_data.update(data)
+                        if not passed:
                             return skipped
                     except Exception:
                         return skipped
+                if filter_data:
+                    current_event.context.setdefault("filter_data", {}).update(filter_data)
                 return await config.handler(current_event)
 
             try:

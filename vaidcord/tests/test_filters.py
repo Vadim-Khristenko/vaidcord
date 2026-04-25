@@ -62,6 +62,13 @@ async def test_magic_filters_composition() -> None:
 
     expr_not = ~F.message.content.contains("ban")
     assert await expr_not(event) is True
+    assert await (F.user.id == 10)(event) is True
+    assert await (F.user.id != 11)(event) is True
+    assert await (F.user.id > 5)(event) is True
+    assert await (F.user.id @ {9, 10, 11})(event) is True
+    assert await F.message.content.regexp(r"^!admin")(event) is True
+    assert await (F.message.content.lower() == "!admin ping")(event) is True
+    assert await (F.message.content.len() == 11)(event) is True
 
 
 @pytest.mark.asyncio
@@ -113,6 +120,22 @@ async def test_router_command_shortcuts_and_middleware_filter_check() -> None:
 async def test_as_filter_accepts_plain_callables() -> None:
     event = _event_with_text("abc")
     assert await as_filter(lambda e: e.message.content == "abc")(event) is True
+
+
+@pytest.mark.asyncio
+async def test_filter_dict_data_propagation_to_event_context() -> None:
+    router = Router()
+    captured: dict = {}
+
+    async def inject_filter(_event: Event):
+        return {"role": "admin", "tenant": "main"}
+
+    @router.on_message(inject_filter)
+    async def handler(event: Event) -> None:
+        captured.update(event.context.get("filter_data", {}))
+
+    await router.propagate_event(_event_with_text("hello"))
+    assert captured == {"role": "admin", "tenant": "main"}
 
 
 @pytest.mark.asyncio
