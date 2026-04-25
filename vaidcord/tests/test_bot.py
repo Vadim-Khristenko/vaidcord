@@ -2,7 +2,7 @@
 
 import pytest
 
-from vaidcord.bot import Bot, BotState
+from vaidcord.bot import Bot, BotState, GatewayIntent
 
 
 @pytest.mark.asyncio
@@ -47,3 +47,112 @@ async def test_send_message_uses_async_api(monkeypatch: pytest.MonkeyPatch) -> N
             {"json": {"content": "Hello", "tts": False}},
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_send_message_supports_discord_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """send_message should pass through advanced Discord message fields."""
+    bot = Bot(token="test-token")
+    calls: list[dict] = []
+
+    async def fake_request(method: str, endpoint: str, **kwargs):
+        calls.append({"method": method, "endpoint": endpoint, "kwargs": kwargs})
+        return {"ok": True}
+
+    monkeypatch.setattr(bot, "request", fake_request)
+
+    await bot.send_message(
+        channel_id=200,
+        content="Hi",
+        embeds=[{"title": "x"}],
+        components=[{"type": 1, "components": []}],
+        allowed_mentions={"parse": []},
+        message_reference={"message_id": "10"},
+        flags=4,
+    )
+
+    assert calls[0] == {
+        "method": "POST",
+        "endpoint": "/channels/200/messages",
+        "kwargs": {
+            "json": {
+                "content": "Hi",
+                "tts": False,
+                "embeds": [{"title": "x"}],
+                "components": [{"type": 1, "components": []}],
+                "allowed_mentions": {"parse": []},
+                "message_reference": {"message_id": "10"},
+                "flags": 4,
+            }
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_send_message_requires_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    """send_message should fail if no content fields are provided."""
+    bot = Bot(token="test-token")
+
+    async def fake_request(method: str, endpoint: str, **kwargs):  # pragma: no cover
+        return {"ok": True}
+
+    monkeypatch.setattr(bot, "request", fake_request)
+
+    with pytest.raises(ValueError):
+        await bot.send_message(channel_id=1, content=None)
+
+
+@pytest.mark.asyncio
+async def test_reply_builds_message_reference(monkeypatch: pytest.MonkeyPatch) -> None:
+    """reply should map to send_message with message_reference payload."""
+    bot = Bot(token="test-token")
+    calls: list[dict] = []
+
+    async def fake_request(method: str, endpoint: str, **kwargs):
+        calls.append(kwargs["json"])
+        return {"id": "x"}
+
+    monkeypatch.setattr(bot, "request", fake_request)
+
+    await bot.reply(channel_id=100, message_id=55, content="pong")
+    assert calls[0]["message_reference"] == {"message_id": "55"}
+
+
+@pytest.mark.asyncio
+async def test_wait_until_ready_timeout() -> None:
+    """wait_until_ready should return False on timeout."""
+    bot = Bot(token="test-token")
+    assert await bot.wait_until_ready(wait_timeout=0.01) is False
+
+
+@pytest.mark.asyncio
+async def test_connect_gateway_uses_gateway_bot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Gateway connection bootstrap should call /gateway/bot."""
+    bot = Bot(token="test-token")
+    calls: list[tuple[str, str]] = []
+
+    class FakeSession:
+        async def ws_connect(self, *_args, **_kwargs):
+            return object()
+
+    async def fake_create_session():
+        bot._session = FakeSession()  # type: ignore[assignment]
+        return bot._session  # type: ignore[return-value]
+
+    async def fake_request(method: str, endpoint: str, **_kwargs):
+        calls.append((method, endpoint))
+        return {"url": "wss://gateway.discord.gg"}
+
+    monkeypatch.setattr(bot, "_create_session", fake_create_session)
+    monkeypatch.setattr(bot, "request", fake_request)
+
+    await bot._connect_gateway()
+    assert calls == [("GET", "/gateway/bot")]
+
+
+def test_gateway_intent_presets() -> None:
+    """Intent presets should be consistent and non-empty."""
+    assert GatewayIntent.default() > 0
+    assert GatewayIntent.all() >= GatewayIntent.default()

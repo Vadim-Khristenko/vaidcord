@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, IntFlag
 from typing import Any
 
 import aiohttp
@@ -42,12 +42,48 @@ class BotState(Enum):
     STOPPED = "stopped"
 
 
+class GatewayIntent(IntFlag):
+    """Gateway intents bitfield values from the Discord Gateway docs."""
+
+    GUILDS = 1 << 0
+    GUILD_MEMBERS = 1 << 1
+    GUILD_MODERATION = 1 << 2
+    GUILD_EMOJIS_AND_STICKERS = 1 << 3
+    GUILD_INTEGRATIONS = 1 << 4
+    GUILD_WEBHOOKS = 1 << 5
+    GUILD_INVITES = 1 << 6
+    GUILD_VOICE_STATES = 1 << 7
+    GUILD_PRESENCES = 1 << 8
+    GUILD_MESSAGES = 1 << 9
+    GUILD_MESSAGE_REACTIONS = 1 << 10
+    GUILD_MESSAGE_TYPING = 1 << 11
+    DIRECT_MESSAGES = 1 << 12
+    DIRECT_MESSAGE_REACTIONS = 1 << 13
+    DIRECT_MESSAGE_TYPING = 1 << 14
+    MESSAGE_CONTENT = 1 << 15
+    GUILD_SCHEDULED_EVENTS = 1 << 16
+    AUTO_MODERATION_CONFIGURATION = 1 << 20
+    AUTO_MODERATION_EXECUTION = 1 << 21
+    GUILD_MESSAGE_POLLS = 1 << 24
+    DIRECT_MESSAGE_POLLS = 1 << 25
+
+    @classmethod
+    def default(cls) -> int:
+        """Sensible default intents for common bot workloads."""
+        return int(cls.GUILDS | cls.GUILD_MESSAGES | cls.DIRECT_MESSAGES)
+
+    @classmethod
+    def all(cls) -> int:
+        """All currently documented intents."""
+        return int(sum(intent.value for intent in cls))
+
+
 @dataclass
 class BotConfig:
     """Configuration for the Bot client."""
 
     token: str
-    intents: int = 32767  # All intents by default
+    intents: int | GatewayIntent = GatewayIntent.all()
     shard_count: int = 1
     shard_id: int = 0
     presence: dict[str, Any] | None = None
@@ -177,9 +213,17 @@ class Bot(Router):
         if self._session is None:
             await self._create_session()
 
-        # Get gateway URL
-        gateway_info = await self.request("GET", "/gateway")
+        # Use authenticated endpoint so we can track shard recommendations.
+        gateway_info = await self.request("GET", "/gateway/bot")
         ws_url = gateway_info.get("url", self.config.gateway_url)
+        recommended_shards = gateway_info.get("shards")
+        if isinstance(recommended_shards, int) and recommended_shards > 0:
+            if self.config.shard_count < recommended_shards:
+                logger.info(
+                    "Gateway recommends %s shard(s); current config uses %s",
+                    recommended_shards,
+                    self.config.shard_count,
+                )
 
         # Connect to WebSocket
         self._ws = await self._session.ws_connect(
@@ -199,7 +243,7 @@ class Bot(Router):
             "op": 2,  # Identify
             "d": {
                 "token": self.config.token,
-                "intents": self.config.intents,
+                "intents": int(self.config.intents),
                 "properties": {
                     "os": "linux",
                     "browser": "VaidCord",
@@ -434,6 +478,19 @@ class Bot(Router):
         finally:
             await self.stop()
 
+    async def wait_until_ready(self, wait_timeout: float | None = None) -> bool:
+        """
+        Wait for the bot to become ready.
+
+        Returns:
+            True if ready was reached before timeout, otherwise False.
+        """
+        try:
+            await asyncio.wait_for(self._ready_event.wait(), timeout=wait_timeout)
+        except TimeoutError:
+            return False
+        return True
+
     async def stop(self) -> None:
         """Stop the bot client."""
         self._running = False
@@ -455,24 +512,72 @@ class Bot(Router):
     async def send_message(
         self,
         channel_id: int,
-        content: str,
+        content: str | None = None,
         *,
         tts: bool = False,
         embeds: list[dict[str, Any]] | None = None,
+        allowed_mentions: dict[str, Any] | None = None,
+        components: list[dict[str, Any]] | None = None,
+        sticker_ids: list[int] | None = None,
+        message_reference: dict[str, Any] | None = None,
+        flags: int | None = None,
     ) -> dict[str, Any]:
         """
         Send a message with a convenient async API.
 
         This method is a higher-level wrapper around the raw HTTP request.
         """
-        payload: dict[str, Any] = {"content": content, "tts": tts}
+        payload: dict[str, Any] = {"tts": tts}
+        if content is not None:
+            payload["content"] = content
         if embeds:
             payload["embeds"] = embeds
+        if allowed_mentions is not None:
+            payload["allowed_mentions"] = allowed_mentions
+        if components:
+            payload["components"] = components
+        if sticker_ids:
+            payload["sticker_ids"] = sticker_ids
+        if message_reference is not None:
+            payload["message_reference"] = message_reference
+        if flags is not None:
+            payload["flags"] = flags
+        has_sendable_content = any(
+            payload.get(field) for field in ("content", "embeds", "components", "sticker_ids")
+        ) or message_reference is not None
+        if not has_sendable_content:
+            raise ValueError(
+                "send_message requires at least one of content/embeds/components/"
+                "sticker_ids/message_reference"
+            )
         return await self.request(
             "POST",
             f"/channels/{channel_id}/messages",
             json=payload,
         )
+
+    async def reply(
+        self,
+        channel_id: int,
+        message_id: int,
+        content: str,
+        *,
+        tts: bool = False,
+        allowed_mentions: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Reply to an existing message."""
+        message_reference = {"message_id": str(message_id)}
+        return await self.send_message(
+            channel_id=channel_id,
+            content=content,
+            tts=tts,
+            allowed_mentions=allowed_mentions,
+            message_reference=message_reference,
+        )
+
+    async def trigger_typing(self, channel_id: int) -> None:
+        """Trigger a typing indicator in a channel."""
+        await self.request("POST", f"/channels/{channel_id}/typing")
 
     async def fetch_channel(self, channel_id: int) -> Channel:
         """Fetch and parse a channel from the API."""
