@@ -61,9 +61,25 @@ async def run_filter_with_data(
     return bool(result), {}
 
 
+def _to_pass_and_data(result: bool | dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+    if isinstance(result, dict):
+        return True, result
+    return bool(result), {}
+
+
 @dataclass(frozen=True)
 class FilterExpr:
-    """Composable filter expression (`&`, `|`, `~`)."""
+    """Composable filter expression (`&`, `|`, `~`).
+
+    Result semantics:
+    - `bool`: pass/fail only.
+    - `dict`: pass + data payload for handler kwargs/context injection.
+
+    Composition rules:
+    - `A & B`: both must pass; dict payloads are merged from left to right.
+    - `A | B`: first passing branch wins; returns dict payload from that branch if present.
+    - `~A`: boolean negation (payloads are not propagated).
+    """
 
     callback: FilterCallable
 
@@ -76,16 +92,36 @@ class FilterExpr:
     def __and__(self, other: FilterLike) -> FilterExpr:
         other_expr = as_filter(other)
 
-        async def _and(event: Event) -> bool:
-            return await self(event) and await other_expr(event)
+        async def _and(event: Event) -> bool | dict[str, Any]:
+            left_result = await self(event)
+            left_passed, left_data = _to_pass_and_data(left_result)
+            if not left_passed:
+                return False
+
+            right_result = await other_expr(event)
+            right_passed, right_data = _to_pass_and_data(right_result)
+            if not right_passed:
+                return False
+
+            merged = {**left_data, **right_data}
+            return merged or True
 
         return FilterExpr(_and)
 
     def __or__(self, other: FilterLike) -> FilterExpr:
         other_expr = as_filter(other)
 
-        async def _or(event: Event) -> bool:
-            return await self(event) or await other_expr(event)
+        async def _or(event: Event) -> bool | dict[str, Any]:
+            left_result = await self(event)
+            left_passed, left_data = _to_pass_and_data(left_result)
+            if left_passed:
+                return left_data or True
+
+            right_result = await other_expr(event)
+            right_passed, right_data = _to_pass_and_data(right_result)
+            if right_passed:
+                return right_data or True
+            return False
 
         return FilterExpr(_or)
 
@@ -104,8 +140,11 @@ def as_filter(filter_like: FilterLike) -> FilterExpr:
     if isinstance(filter_like, FilterExpr):
         return filter_like
 
-    async def _cb(event: Event) -> bool:
-        return await run_filter(filter_like, event)
+    async def _cb(event: Event) -> bool | dict[str, Any]:
+        result = filter_like(event)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
 
     return FilterExpr(_cb)
 
