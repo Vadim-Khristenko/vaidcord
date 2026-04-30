@@ -16,6 +16,7 @@ from typing import Any
 
 import aiohttp
 
+from vaidcord.application import Application, ApplicationRoleConnectionMetadata
 from vaidcord.router import Router
 from vaidcord.types import (
     Channel,
@@ -637,6 +638,38 @@ class Bot(Router):
             "/webhooks",
             json={"drop_pending_updates": drop_pending_updates},
         )
+
+    async def get_current_application(self) -> Application:
+        data = await self.request("GET", "/applications/@me")
+        return Application.from_dict(data)
+
+    async def edit_current_application(self, **payload: Any) -> Application:
+        data = await self.request("PATCH", "/applications/@me", json=payload)
+        return Application.from_dict(data)
+
+    async def get_application_role_connection_metadata(
+        self,
+        application_id: int,
+    ) -> list[ApplicationRoleConnectionMetadata]:
+        data = await self.request(
+            "GET",
+            f"/applications/{application_id}/role-connections/metadata",
+        )
+        return [ApplicationRoleConnectionMetadata.from_dict(item) for item in data]
+
+    async def update_application_role_connection_metadata(
+        self,
+        application_id: int,
+        records: list[ApplicationRoleConnectionMetadata],
+    ) -> list[ApplicationRoleConnectionMetadata]:
+        if len(records) > 5:
+            raise ValueError("Discord allows at most 5 role connection metadata records")
+        data = await self.request(
+            "PUT",
+            f"/applications/{application_id}/role-connections/metadata",
+            json=[item.to_dict() for item in records],
+        )
+        return [ApplicationRoleConnectionMetadata.from_dict(item) for item in data]
 
     async def fetch_channel(self, channel_id: int) -> Channel:
         """Fetch and parse a channel from the API."""
