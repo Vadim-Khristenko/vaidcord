@@ -25,9 +25,12 @@ from vaidcord.filters import (
 from vaidcord.types import ChannelType, Event, EventType
 
 T = TypeVar("T")
-Handler = Callable[[Event], Awaitable[Any]]
-NextHandler = Callable[[Event], Awaitable[Any]]
-Middleware = Callable[[Event, NextHandler], Awaitable[Any]]
+
+EventHandlerResult = object | None
+Handler = Callable[[Event], Awaitable[EventHandlerResult]]
+NextHandler = Callable[[Event], Awaitable[EventHandlerResult]]
+Middleware = Callable[[Event, NextHandler], Awaitable[EventHandlerResult]]
+LifecycleHandler = Callable[[], Awaitable[None]]
 Filter = FilterLike
 
 
@@ -82,9 +85,9 @@ class Router:
         self._middlewares: list[MiddlewareConfig] = []
         self._router_filters: list[RouterFilterConfig] = []
         self._dependencies: dict[str, Any] = {}
-        self._startup_handlers: list[Callable[[], Awaitable[Any]]] = []
-        self._shutdown_handlers: list[Callable[[], Awaitable[Any]]] = []
-        self._reconnect_handlers: list[Callable[[], Awaitable[Any]]] = []
+        self._startup_handlers: list[LifecycleHandler] = []
+        self._shutdown_handlers: list[LifecycleHandler] = []
+        self._reconnect_handlers: list[LifecycleHandler] = []
 
     def _resolve_event_types(self, *event_types: EventType | str) -> list[EventType]:
         """Resolve event types from arguments."""
@@ -336,20 +339,20 @@ class Router:
         deps.update(self._dependencies)
         return deps
 
-    def on_startup(self) -> Callable[[Callable[[], Awaitable[Any]]], Callable[[], Awaitable[Any]]]:
-        def decorator(handler: Callable[[], Awaitable[Any]]) -> Callable[[], Awaitable[Any]]:
+    def on_startup(self) -> Callable[[LifecycleHandler], LifecycleHandler]:
+        def decorator(handler: LifecycleHandler) -> LifecycleHandler:
             self._startup_handlers.append(handler)
             return handler
         return decorator
 
-    def on_shutdown(self) -> Callable[[Callable[[], Awaitable[Any]]], Callable[[], Awaitable[Any]]]:
-        def decorator(handler: Callable[[], Awaitable[Any]]) -> Callable[[], Awaitable[Any]]:
+    def on_shutdown(self) -> Callable[[LifecycleHandler], LifecycleHandler]:
+        def decorator(handler: LifecycleHandler) -> LifecycleHandler:
             self._shutdown_handlers.append(handler)
             return handler
         return decorator
 
-    def on_reconnect(self) -> Callable[[Callable[[], Awaitable[Any]]], Callable[[], Awaitable[Any]]]:
-        def decorator(handler: Callable[[], Awaitable[Any]]) -> Callable[[], Awaitable[Any]]:
+    def on_reconnect(self) -> Callable[[LifecycleHandler], LifecycleHandler]:
+        def decorator(handler: LifecycleHandler) -> LifecycleHandler:
             self._reconnect_handlers.append(handler)
             return handler
         return decorator
@@ -474,8 +477,8 @@ class Router:
         self,
         event: Event,
         handler: Handler,
-    ) -> Any:
-        async def call(index: int, current_event: Event) -> Any:
+    ) -> EventHandlerResult:
+        async def call(index: int, current_event: Event) -> EventHandlerResult:
             if index >= len(chain):
                 return await handler(current_event)
             middleware = chain[index]
@@ -484,7 +487,7 @@ class Router:
         chain = self._resolve_middleware_chain(event.type)
         return await call(0, event)
 
-    async def propagate_event(self, event: Event) -> Any:
+    async def propagate_event(self, event: Event) -> EventHandlerResult:
         """
         Propagate an event through all registered handlers.
 
@@ -511,7 +514,7 @@ class Router:
             item.filter_obj for item in self._resolve_router_filter_configs(event.type)
         ]
         for config in handlers:
-            async def guarded_handler(current_event: Event) -> Any:
+            async def guarded_handler(current_event: Event) -> EventHandlerResult:
                 filter_data: dict[str, Any] = {}
                 for filter_func in [*router_filters, *config.filters]:
                     try:
