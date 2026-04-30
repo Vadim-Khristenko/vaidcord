@@ -2,6 +2,14 @@
 
 VaidCord exposes Discord application resources as lightweight models so you can work with structured data instead of raw payload dictionaries.
 
+## Layer map (after modular refactor)
+
+- `vaidcord.bot.Bot`: high-level orchestration facade (`start`, `stop`, `send_message`, application helpers).
+- `vaidcord.gateway_runtime.GatewayRuntime`: gateway session lifecycle, identify flow, heartbeat, and dispatch loop.
+- `vaidcord.api_client.APIClient`: REST layer used by `Bot`, backed by `HTTPClient`.
+- `APIClient` now also exposes convenience methods (`get/post/patch/put/delete`, `send_message`, `fetch_*`) for easier extension in app-level tooling.
+- `vaidcord.dispatcher.Dispatcher`: router/FSM lifecycle and startup modes, typed against a narrow bot protocol instead of a concrete `Bot`.
+
 ## Models
 
 - `Application` represents the current Discord application or bot app record.
