@@ -23,6 +23,5 @@ async def echo(event):
     if not event.message.content.startswith("/"):
         await bot.send_message(event.message.channel_id, f"echo: {event.message.content}")
 
-
 if __name__ == "__main__":
     bot.run()
