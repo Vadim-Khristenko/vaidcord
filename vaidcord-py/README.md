@@ -66,11 +66,11 @@ different_types = Router(name="different_types")
 
 @different_types.message(F.message.content)
 async def message_with_text(event):
-    await event.message.answer("Это текстовое сообщение!")
+    await event.message.answer("This is a text message!")
 
 @questions.on_command("start")
 async def cmd_start(event):
-    await event.message.answer("Вы довольны своей работой?")
+    await event.message.answer("Are you enjoying your work today?")
 
 async def main():
     bot = Bot(token="TOKEN")
@@ -346,3 +346,29 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 - Inspired by the elegant architecture of [Aiogram 3.x](https://docs.aiogram.dev/)
 - Built on the [Discord API](https://discord.com/developers/docs/intro)
+
+## Mock server quick guide
+
+Use `MockDiscordServer` when you want HTTP-level integration checks without hitting Discord.
+
+```python
+import asyncio
+from vaidcord.mock import MockDiscordServer
+
+async def main():
+    server = MockDiscordServer(host="127.0.0.1", port=8081)
+    await server.start()
+    try:
+        print("Mock server running at", server.base_url)
+        # Run your test client/bot against server.base_url
+    finally:
+        await server.stop()
+
+asyncio.run(main())
+```
+
+Recommended flow:
+1. Start `MockDiscordServer` in test setup.
+2. Point `BotConfig.base_url` and gateway URL to mock endpoints.
+3. Use `MockGateway` events to simulate READY / MESSAGE_CREATE.
+4. Assert outgoing API calls through mock HTTP history.
