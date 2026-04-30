@@ -1,15 +1,27 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Protocol
 
 from .base import FSMScope, StateValue, StorageKey
+
+
+class AsyncRedisClient(Protocol):
+    async def hget(self, *args: Any, **kwargs: Any) -> Any: ...
+    async def hset(self, *args: Any, **kwargs: Any) -> Any: ...
+    async def hdel(self, *args: Any, **kwargs: Any) -> Any: ...
+    async def delete(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 class RedisFSMStorage:
     """Async Redis FSM storage (requires optional `redis` package)."""
 
-    def __init__(self, client: Any | None = None, *, prefix: str = "vaidcord:fsm") -> None:
+    def __init__(
+        self,
+        client: AsyncRedisClient | None = None,
+        *,
+        prefix: str = "vaidcord:fsm",
+    ) -> None:
         if client is None:
             try:
                 from redis.asyncio import Redis  # type: ignore

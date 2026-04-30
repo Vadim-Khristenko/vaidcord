@@ -20,6 +20,10 @@ VaidCord is a modern, type-safe, and performant Python framework for building Di
 ```bash
 # Using uv (recommended)
 uv add vaidcord
+uv add "vaidcord[mongo]"      # like aiogram[mongo]
+uv add "vaidcord[redis]"
+uv add "vaidcord[postgres]"
+uv add "vaidcord[all-backends]"
 
 # Or using pip
 pip install vaidcord
