@@ -42,6 +42,11 @@ class Dispatcher(Router):
     async def feed_event(self, event: Any) -> Any:
         return await self.propagate_event(event)
 
+    def include_router(self, router: Router) -> None:
+        if isinstance(router, Dispatcher):
+            raise ValueError("Dispatcher cannot include another Dispatcher")
+        super().include_router(router)
+
     async def start_polling(self, bot: Bot) -> None:
         """
         Start bot and route events through dispatcher routers.

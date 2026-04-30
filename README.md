@@ -1,23 +1,28 @@
 # VaidCord Community SDK
 
-Community-driven Discord SDK initiative.
+VaidCord is a community-driven Discord SDK initiative designed to provide a clean, modern developer experience across multiple languages.
 
-## Repository structure
+## Repository layout
 
-- `vaidcord-py/` — **production Python implementation** (package name remains `vaidcord`).
-- `vaidcord-go/` — Go SDK placeholder (planned).
-- `vaidcord-rust/` — Rust SDK placeholder (planned).
+- `vaidcord-py/` — production Python SDK (`import vaidcord`).
+- `vaidcord-go/` — Go SDK placeholder.
+- `vaidcord-rust/` — Rust SDK placeholder.
 
-## Current status
+## Vision
 
-Right now, only the Python SDK is implemented and maintained.
+- **Developer-first architecture** inspired by mature bot frameworks.
+- **Composable routing** with filter-driven handler dispatch.
+- **Stateful workflows** with FSM middleware and pluggable storage.
+- **Testability by default** with first-class mock components.
 
-## Quick start (Python)
+Today, the Python SDK is the active implementation.
+
+## Getting started (Python)
 
 ```bash
 cd vaidcord-py
 uv sync
-uv run pytest -q
+uv run python -m pytest -q
 ```
 
-Then see `vaidcord-py/README.md` for framework docs and examples.
+Then read `vaidcord-py/README.md` and `vaidcord-py/docs/`.

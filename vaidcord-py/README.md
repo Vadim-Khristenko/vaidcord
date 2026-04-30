@@ -1,24 +1,46 @@
 # VaidCord Python SDK (`vaidcord`)
 
-A community-driven Discord SDK inspired by Aiogram-style architecture.
+VaidCord is a Python Discord SDK focused on clarity, composability, and testability.
 
-## Install
+## What this library is for
+
+VaidCord helps you build Discord bots with a layered architecture:
+
+- **Bot** handles Discord HTTP/Gateway transport.
+- **Dispatcher** is the root router and runtime coordinator.
+- **Router** organizes feature modules.
+- **Filters + DI + Middleware** make handlers expressive.
+- **FSM** provides durable, scoped conversational state.
+
+## Installation
 
 ```bash
 uv add vaidcord
-# optional storage backends
+# optional FSM backends
 uv add "vaidcord[redis]"
 uv add "vaidcord[mongo]"
 uv add "vaidcord[postgres]"
 ```
 
-## Core architecture
+## Core mental model
 
-- `Bot` — Discord gateway/API client.
-- `Dispatcher` — top-level router/runtime coordinator.
-- `Router` — modular handler composition.
-- `F` + filters — composable filtering and handler data injection.
-- FSM middleware/storage — stateful workflows.
+### 1) Bot + Dispatcher + Routers
+
+- `Dispatcher` is always the **root router**.
+- You include routers into dispatcher (or routers into routers).
+- You **cannot** mount a dispatcher inside another dispatcher/router.
+
+### 2) DI scope rules
+
+Dependency providers are hierarchical:
+
+- `dispatcher.provide("x", value)` → available to **all descendant routers**.
+- `router.provide("x", value)` → available only inside that router subtree.
+
+### 3) FSM defaults
+
+`Dispatcher()` auto-registers FSM middleware.
+If no storage is passed, it uses in-memory storage.
 
 ## Quick start (polling)
 
@@ -30,15 +52,15 @@ router = Router(name="main")
 
 @router.message(F.message.content)
 async def on_text(event):
-    await event.message.answer("Got text message")
+    await event.message.answer("I got a text message")
 
 @router.on_command("start")
 async def on_start(event):
-    await event.message.answer("Hello from VaidCord")
+    await event.message.answer("Welcome to VaidCord")
 
-async def main():
+async def main() -> None:
     bot = Bot(token="TOKEN")
-    dp = Dispatcher()  # default FSM storage is in-memory
+    dp = Dispatcher()
     dp.include_router(router)
 
     await bot.delete_webhook(drop_pending_updates=True)
@@ -50,17 +72,92 @@ if __name__ == "__main__":
 
 ## Runtime modes
 
-- `await dp.start_polling(bot)`
-- `await dp.start_websocket(bot)`
-- `await dp.start_webhook(bot, drop_pending_updates=True)`
+```python
+await dp.start_polling(bot)
+await dp.start_websocket(bot)
+await dp.start_webhook(bot, drop_pending_updates=True)
+```
 
-## Mock server quick guide
+## Detailed examples
+
+### Feature routers
+
+```python
+from vaidcord import Router
+
+admin_router = Router(name="admin")
+public_router = Router(name="public")
+
+dp.include_routers(admin_router, public_router)
+```
+
+### DI at dispatcher level (global)
+
+```python
+dp.provide("service_name", "billing")
+
+@public_router.message()
+async def handler(event, service_name: str):
+    await event.message.answer(f"Service: {service_name}")
+```
+
+### DI at router level (local subtree)
+
+```python
+admin_router.provide("admin_tag", "[ADMIN]")
+
+@admin_router.message()
+async def admin_handler(event, admin_tag: str):
+    await event.message.answer(f"{admin_tag} command accepted")
+```
+
+### Filters returning handler parameters
+
+```python
+from vaidcord import F
+
+@router.message(F.message.content.startswith("/order"))
+async def on_order(event, startswith: str, matched_text: str):
+    await event.message.answer(f"Matched prefix: {startswith}")
+```
+
+### FSM storage configuration
+
+```python
+from vaidcord import Dispatcher
+from vaidcord.fsm.storage.sqlite import SQLiteFSMStorage
+
+dp = Dispatcher(storage=SQLiteFSMStorage("fsm.sqlite3"))
+```
+
+## Bot convenience methods
+
+Common high-level bot calls:
+
+- `send_message(...)`
+- `reply(channel_id, message_id, content, ...)`
+- `send_poll(...)`
+- `trigger_typing(channel_id)`
+- `fetch_channel(channel_id)`
+- `fetch_guild(guild_id)`
+- `fetch_user(user_id)`
+
+Application API calls:
+
+- `get_current_application()`
+- `edit_current_application(...)`
+- `get_application_role_connection_metadata(application_id)`
+- `update_application_role_connection_metadata(application_id, records)`
+
+## Mock/testing
+
+Use `MockBot`, `MockGateway`, `MockHTTPClient`, and `MockDiscordServer` for deterministic tests.
 
 ```python
 import asyncio
 from vaidcord.mock import MockDiscordServer
 
-async def main():
+async def run_mock_server():
     server = MockDiscordServer(host="127.0.0.1", port=8081)
     await server.start()
     try:
@@ -68,14 +165,11 @@ async def main():
     finally:
         await server.stop()
 
-asyncio.run(main())
+asyncio.run(run_mock_server())
 ```
 
-## New HTTP resources included
+## Documentation map
 
-- Current Application API (`GET/PATCH /applications/@me`)
-- Role Connection Metadata API:
-  - `GET /applications/{application.id}/role-connections/metadata`
-  - `PUT /applications/{application.id}/role-connections/metadata`
-
-See `docs/PYTHON_DRIVER.md` and `docs/APPLICATION_API.md`.
+- `docs/PYTHON_DRIVER.md` — architecture, runtime model, DI/FSM.
+- `docs/APPLICATION_API.md` — Discord Application + Role Metadata resources.
+- `docs/OAUTH2.md` — OAuth2 utilities.

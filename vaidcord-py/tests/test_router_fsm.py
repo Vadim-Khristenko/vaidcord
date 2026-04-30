@@ -301,3 +301,10 @@ async def test_dispatcher_start_webhook_calls_delete_webhook() -> None:
     bot = FakeBot()
     await dp.start_webhook(bot, drop_pending_updates=True)  # type: ignore[arg-type]
     assert calls == [True]
+
+
+def test_dispatcher_cannot_include_dispatcher() -> None:
+    root = Dispatcher()
+    child = Dispatcher()
+    with pytest.raises(ValueError):
+        root.include_router(child)
