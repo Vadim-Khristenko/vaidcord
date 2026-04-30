@@ -48,6 +48,7 @@ __lazy_imports__ = {
     "HTTPConfig": ".http",
     "DiscordError": ".http",
     "MockBot": ".mock",
+    "MockSettings": ".mock",
     "MockGateway": ".mock",
     "MockHTTPClient": ".mock",
     "create_mock_message": ".mock",
@@ -93,6 +94,10 @@ __lazy_imports__ = {
     "FSMScope": ".fsm",
     "FSMMiddleware": ".fsm",
     "MemoryFSMStorage": ".fsm",
+    "SQLiteFSMStorage": ".fsm",
+    "RedisFSMStorage": ".fsm",
+    "MongoFSMStorage": ".fsm",
+    "PostgresFSMStorage": ".fsm",
     "StateValue": ".fsm",
     "StorageKey": ".fsm",
 }
@@ -142,6 +147,7 @@ __all__ = [
     "DiscordError",
     # Mocking
     "MockBot",
+    "MockSettings",
     "MockGateway",
     "MockHTTPClient",
     "create_mock_message",
@@ -187,6 +193,10 @@ __all__ = [
     "FSMScope",
     "FSMMiddleware",
     "MemoryFSMStorage",
+    "SQLiteFSMStorage",
+    "RedisFSMStorage",
+    "MongoFSMStorage",
+    "PostgresFSMStorage",
     "StateValue",
     "StorageKey",
     # Version

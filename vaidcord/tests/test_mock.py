@@ -7,6 +7,7 @@ from vaidcord import (
     create_mock_event,
     create_mock_message,
 )
+from vaidcord.mock import MockSettings
 from vaidcord.formatting import Formatter
 from vaidcord.types import ChannelType, EventType
 
@@ -28,6 +29,20 @@ async def test_mock_bot_start_stop():
     assert bot.is_ready is True
     await bot.stop()
     assert bot.is_ready is False
+
+
+@pytest.mark.asyncio
+async def test_mock_settings_auto_ready_toggle():
+    """READY auto-enqueue can be disabled for deterministic tests."""
+    from vaidcord.mock import MockEvent
+
+    bot = MockBot(settings=MockSettings(auto_ready_event=False))
+    bot.gateway.add_event(MockEvent(event_type=EventType.MESSAGE_CREATE, data={"content": "x"}))
+    await bot.start()
+    event = await bot.gateway.receive_event()
+    assert event is not None
+    assert event["t"] == "MESSAGE_CREATE"
+    await bot.stop()
 
 
 @pytest.mark.asyncio
@@ -75,6 +90,14 @@ async def test_mock_http_client():
     assert len(history) == 1
     assert history[0]["method"] == "GET"
     assert history[0]["endpoint"] == "/users/123"
+
+
+def test_mock_bot_configure_runtime_settings():
+    """MockBot.configure should allow easy runtime tuning."""
+    bot = MockBot()
+    bot.configure(default_rate_limit=99, network_delay=0.01)
+    assert bot.settings.default_rate_limit == 99
+    assert bot.settings.network_delay == 0.01
 
 
 @pytest.mark.asyncio

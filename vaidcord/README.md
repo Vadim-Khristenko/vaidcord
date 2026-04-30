@@ -85,6 +85,7 @@ Advanced testing utilities:
 - `MockBot`: Fully functional bot instance without network connections
 - `MockGateway`: Simulate gateway events
 - `MockHTTPClient`: Mock API responses
+- `MockSettings`: easy runtime tuning for deterministic tests
 - Helper functions for creating test data
 
 ## Configuration
@@ -202,6 +203,14 @@ async def capture_name(event):
 # async def on_locked_channel(event):
 #     ...
 ```
+
+FSM is now package-structured for extensibility:
+- `vaidcord.fsm.storage.base`
+- `vaidcord.fsm.storage.memory`
+- `vaidcord.fsm.storage.sqlite`
+- `vaidcord.fsm.storage.redis` *(optional integration stub)*
+- `vaidcord.fsm.storage.mongo` *(optional integration stub)*
+- `vaidcord.fsm.storage.postgres` *(optional integration stub)*
 
 ## Powerful Filters (Aiogram-style)
 
