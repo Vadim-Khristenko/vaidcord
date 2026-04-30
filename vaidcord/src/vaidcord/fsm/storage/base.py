@@ -66,3 +66,30 @@ class BaseFSMStorage(Protocol):
     async def update_data(self, key: StorageKey, **kwargs: Any) -> dict[str, Any]: ...
 
     async def clear(self, key: StorageKey) -> None: ...
+
+    async def set_many_states(
+        self, assignments: dict[StorageKey, StateValue | None]
+    ) -> None: ...
+
+    async def get_many_states(self, keys: list[StorageKey]) -> dict[StorageKey, str | None]: ...
+
+    async def set_state_for(
+        self,
+        scope: FSMScope,
+        state: StateValue | None,
+        *,
+        guild_id: int | None = None,
+        channel_id: int | None = None,
+        topic_id: int | None = None,
+        user_id: int | None = None,
+        custom_id: str | None = None,
+    ) -> None: ...
+
+    async def transition_data(
+        self,
+        from_key: StorageKey,
+        to_key: StorageKey,
+        *,
+        clear_source: bool = False,
+        merge: bool = True,
+    ) -> dict[str, Any]: ...

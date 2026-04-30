@@ -43,6 +43,9 @@ class MemoryFSMStorage:
         for key, state in assignments.items():
             await self.set_state(key, state)
 
+    async def get_many_states(self, keys: list[StorageKey]) -> dict[StorageKey, str | None]:
+        return {key: self._states.get(key) for key in keys}
+
     async def set_state_for(
         self,
         scope: FSMScope,
@@ -63,3 +66,24 @@ class MemoryFSMStorage:
             custom_id=custom_id,
         )
         await self.set_state(key, state)
+
+    async def transition_data(
+        self,
+        from_key: StorageKey,
+        to_key: StorageKey,
+        *,
+        clear_source: bool = False,
+        merge: bool = True,
+    ) -> dict[str, Any]:
+        source = await self.get_data(from_key)
+        if merge:
+            target = await self.get_data(to_key)
+            target.update(source)
+            await self.set_data(to_key, target)
+            result = target
+        else:
+            await self.set_data(to_key, source)
+            result = source
+        if clear_source:
+            await self.clear(from_key)
+        return result

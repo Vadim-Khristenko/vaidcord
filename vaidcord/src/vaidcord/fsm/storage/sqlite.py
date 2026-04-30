@@ -4,7 +4,7 @@ import json
 import sqlite3
 from typing import Any
 
-from .base import StateValue, StorageKey
+from .base import FSMScope, StateValue, StorageKey
 
 
 class SQLiteFSMStorage:
@@ -86,3 +86,52 @@ class SQLiteFSMStorage:
     async def clear(self, key: StorageKey) -> None:
         self._conn.execute("DELETE FROM fsm_state WHERE key=?", (self._key_text(key),))
         self._conn.commit()
+
+    async def set_many_states(self, assignments: dict[StorageKey, StateValue | None]) -> None:
+        for key, state in assignments.items():
+            await self.set_state(key, state)
+
+    async def get_many_states(self, keys: list[StorageKey]) -> dict[StorageKey, str | None]:
+        return {key: await self.get_state(key) for key in keys}
+
+    async def set_state_for(
+        self,
+        scope: FSMScope,
+        state: StateValue | None,
+        *,
+        guild_id: int | None = None,
+        channel_id: int | None = None,
+        topic_id: int | None = None,
+        user_id: int | None = None,
+        custom_id: str | None = None,
+    ) -> None:
+        key = StorageKey(
+            scope=scope,
+            guild_id=guild_id,
+            channel_id=channel_id,
+            topic_id=topic_id,
+            user_id=user_id,
+            custom_id=custom_id,
+        )
+        await self.set_state(key, state)
+
+    async def transition_data(
+        self,
+        from_key: StorageKey,
+        to_key: StorageKey,
+        *,
+        clear_source: bool = False,
+        merge: bool = True,
+    ) -> dict[str, Any]:
+        source = await self.get_data(from_key)
+        if merge:
+            target = await self.get_data(to_key)
+            target.update(source)
+            await self.set_data(to_key, target)
+            result = target
+        else:
+            await self.set_data(to_key, source)
+            result = source
+        if clear_source:
+            await self.clear(from_key)
+        return result
