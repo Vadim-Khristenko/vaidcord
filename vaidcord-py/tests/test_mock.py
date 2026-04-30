@@ -220,3 +220,27 @@ async def test_mock_discord_server_smoke():
                 assert payload["content"] == "hello"
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_mock_discord_server_send_dm_flow():
+    from vaidcord.bot import Bot, BotConfig
+    from vaidcord.mock import MockDiscordServer
+
+    server = MockDiscordServer(port=18082)
+    await server.start()
+    try:
+        bot = Bot(
+            config=BotConfig(
+                token="test-token",
+                base_url=server.base_url,
+                api_version="10",
+            )
+        )
+        message = await bot.send_dm(user_id=123, content="hello from test")
+        assert message.content == "hello from test"
+        assert server.requests[0]["path"] == "/api/v10/users/@me/channels"
+        assert server.requests[1]["path"] == "/api/v10/channels/1123/messages"
+        await bot.api_client.close()
+    finally:
+        await server.stop()

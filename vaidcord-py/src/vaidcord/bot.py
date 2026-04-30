@@ -17,6 +17,7 @@ import aiohttp
 
 from vaidcord.application import Application, ApplicationRoleConnectionMetadata
 from vaidcord.api_client import APIClient
+from vaidcord.errors import DiscordAPIError, ForbiddenError, RateLimitError
 from vaidcord.gateway_runtime import GatewayRuntime
 from vaidcord.router import Router
 from vaidcord.types import (
@@ -295,6 +296,9 @@ class Bot(Router):
             avatar=data.get("avatar"),
             banner=data.get("banner"),
             accent_color=data.get("accent_color"),
+            avatar_decoration_data=data.get("avatar_decoration_data"),
+            collectibles=data.get("collectibles"),
+            primary_guild=data.get("primary_guild"),
         )
 
     def _parse_guild(self, data: dict[str, Any]) -> Guild:
@@ -458,7 +462,7 @@ class Bot(Router):
                 "send_message requires at least one of content/embeds/components/"
                 "sticker_ids/message_reference"
             )
-        return await self.api_client.send_message(channel_id, payload)
+        return await self.request("POST", f"/channels/{channel_id}/messages", json=payload)
 
     async def reply(
         self,
@@ -478,6 +482,60 @@ class Bot(Router):
             allowed_mentions=allowed_mentions,
             message_reference=message_reference,
         )
+
+    async def send_dm(self, user_id: int, content: str, **kwargs: Any) -> Message:
+        """Open (or fetch) a DM channel with a user and send a message."""
+        try:
+            dm_channel = await self.request(
+                "POST",
+                "/users/@me/channels",
+                json={"recipient_id": str(user_id)},
+            )
+        except DiscordAPIError as exc:
+            if exc.status == 429:
+                raise RateLimitError(
+                    "Rate limited while opening DM channel",
+                    retry_after=0.0,
+                    global_limit=False,
+                    raw_data=exc.raw_data,
+                ) from exc
+            if exc.status == 403:
+                raise ForbiddenError(
+                    "Cannot open DM channel. User may have DMs disabled or no shared server/permissions.",
+                    raw_data=exc.raw_data,
+                ) from exc
+            raise
+
+        channel_id = int(dm_channel["id"])
+        try:
+            message_data = await self.send_message(
+                channel_id=channel_id,
+                content=content,
+                **kwargs,
+            )
+        except DiscordAPIError as exc:
+            if exc.status == 429:
+                raise RateLimitError(
+                    "Rate limited while sending DM message",
+                    retry_after=0.0,
+                    global_limit=False,
+                    raw_data=exc.raw_data,
+                ) from exc
+            if exc.status == 403:
+                raise ForbiddenError(
+                    "Cannot send DM. User may have DMs disabled or no shared server/permissions.",
+                    raw_data=exc.raw_data,
+                ) from exc
+            raise
+
+        message = self._parse_message(message_data)
+        self._channels[message.channel.id] = message.channel
+        self._users[message.author.id] = message.author
+        return message
+
+    async def send_message_to_user(self, user_id: int, content: str, **kwargs: Any) -> Message:
+        """Alias for send_dm for semantic readability."""
+        return await self.send_dm(user_id=user_id, content=content, **kwargs)
 
     async def send_poll(
         self,
@@ -589,6 +647,40 @@ class Bot(Router):
         user = self._parse_user(data)
         self._users[user.id] = user
         return user
+
+    async def get_current_user(self) -> User:
+        """Get the current bot user via REST."""
+        data = await self.api_client.get_current_user()
+        user = self._parse_user(data)
+        self._users[user.id] = user
+        self._user = user
+        return user
+
+    async def modify_current_user(self, **payload: Any) -> User:
+        """Modify the current user settings (username/avatar/banner)."""
+        data = await self.api_client.modify_current_user(payload)
+        user = self._parse_user(data)
+        self._users[user.id] = user
+        self._user = user
+        return user
+
+    async def get_current_user_guilds(self, **params: Any) -> list[Guild]:
+        """Get current user guild list (/users/@me/guilds)."""
+        data = await self.api_client.get_current_user_guilds(**params)
+        guilds = [self._parse_guild(item) for item in data]
+        for guild in guilds:
+            self._guilds[guild.id] = guild
+        return guilds
+
+    async def get_current_user_guild_member(self, guild_id: int) -> dict[str, Any]:
+        """Get current user guild member object for a guild."""
+        return await self.api_client.get_current_user_guild_member(guild_id)
+
+    async def leave_guild(self, guild_id: int) -> dict[str, Any]:
+        """Leave a guild as current user."""
+        result = await self.api_client.leave_guild(guild_id)
+        self._guilds.pop(guild_id, None)
+        return result
 
     def run(self) -> None:
         """Run the bot (blocking)."""
