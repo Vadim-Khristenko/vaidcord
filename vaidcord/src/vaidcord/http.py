@@ -188,7 +188,7 @@ class HTTPClient:
             self._session = None
 
     async def _check_rate_limit(
-        self, route: str, response: ClientResponse
+        self, route: str, response: aiohttp.ClientResponse
     ) -> RateLimitInfo | None:
         """Check and handle rate limit headers."""
         headers = response.headers
