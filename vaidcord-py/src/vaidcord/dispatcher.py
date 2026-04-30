@@ -3,22 +3,32 @@ from __future__ import annotations
 from typing import Any
 
 from vaidcord.bot import Bot
-from vaidcord.fsm import FSMMiddleware
+from vaidcord.fsm import FSMMiddleware, MemoryFSMStorage
 from vaidcord.router import Router
 
 
 class Dispatcher(Router):
     """Top-level router with Bot/FSM wiring, inspired by Aiogram 3.x."""
 
-    def __init__(self, bot: Bot | None = None, *, fsm: FSMMiddleware | None = None, name: str = "dispatcher") -> None:
+    def __init__(
+        self,
+        bot: Bot | None = None,
+        *,
+        fsm: FSMMiddleware | None = None,
+        storage: Any | None = None,
+        name: str = "dispatcher",
+    ) -> None:
         super().__init__(name=name)
         self.bot = bot
-        self.fsm = fsm
+        resolved_storage = storage or MemoryFSMStorage()
+        self.fsm = fsm or FSMMiddleware(storage=resolved_storage)
+        self.add_middleware(self.fsm)
         if bot is not None:
             self.provide("bot", bot)
 
     def setup_fsm(self, fsm: FSMMiddleware) -> None:
         self.fsm = fsm
+        self.add_middleware(fsm)
 
     async def startup(self) -> None:
         await self.emit_startup()
@@ -44,3 +54,12 @@ class Dispatcher(Router):
             await bot.start()
         finally:
             await self.shutdown()
+
+    async def start_websocket(self, bot: Bot) -> None:
+        """Alias for explicit websocket startup."""
+        await self.start_polling(bot)
+
+    async def start_webhook(self, bot: Bot, *, drop_pending_updates: bool = False) -> None:
+        """Webhook-style startup helper (webhook server integration is app-defined)."""
+        await bot.delete_webhook(drop_pending_updates=drop_pending_updates)
+        await self.start_polling(bot)

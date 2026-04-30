@@ -83,7 +83,7 @@ class BotConfig:
     """Configuration for the Bot client."""
 
     token: str
-    intents: int | GatewayIntent = GatewayIntent.all()
+    intents: int | GatewayIntent = GatewayIntent.default()
     shard_count: int = 1
     shard_id: int = 0
     presence: dict[str, Any] | None = None

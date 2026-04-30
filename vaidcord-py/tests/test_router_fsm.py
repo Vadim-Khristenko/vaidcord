@@ -274,3 +274,30 @@ async def test_dispatcher_include_routers_and_start_polling(monkeypatch: pytest.
     await dp.start_polling(bot)  # type: ignore[arg-type]
     assert bot.started is True
     assert bot.included == [dp]
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_auto_registers_fsm_middleware() -> None:
+    dp = Dispatcher()
+    assert dp.fsm is not None
+    assert any(config.middleware is dp.fsm for config in dp._middlewares)
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_start_webhook_calls_delete_webhook() -> None:
+    dp = Dispatcher()
+    calls: list[bool] = []
+
+    class FakeBot:
+        def include_router(self, router: Router) -> None:
+            self.router = router
+
+        async def start(self) -> None:
+            return None
+
+        async def delete_webhook(self, *, drop_pending_updates: bool = False) -> None:
+            calls.append(drop_pending_updates)
+
+    bot = FakeBot()
+    await dp.start_webhook(bot, drop_pending_updates=True)  # type: ignore[arg-type]
+    assert calls == [True]
