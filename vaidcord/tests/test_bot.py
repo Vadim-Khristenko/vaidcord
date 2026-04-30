@@ -91,6 +91,55 @@ async def test_send_message_supports_discord_fields(
 
 
 @pytest.mark.asyncio
+async def test_send_poll_builds_discord_poll_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """send_poll should normalize payload into Discord poll object."""
+    bot = Bot(token="test-token")
+    calls: list[dict] = []
+
+    async def fake_request(method: str, endpoint: str, **kwargs):
+        calls.append(kwargs["json"])
+        return {"id": "42"}
+
+    monkeypatch.setattr(bot, "request", fake_request)
+
+    await bot.send_poll(
+        channel_id=777,
+        question="Best language?",
+        answers=["Python", "Rust"],
+        duration_hours=24,
+        allow_multiselect=True,
+    )
+
+    assert calls[0]["poll"]["question"] == {"text": "Best language?"}
+    assert calls[0]["poll"]["answers"] == [
+        {"poll_media": {"text": "Python"}},
+        {"poll_media": {"text": "Rust"}},
+    ]
+    assert calls[0]["poll"]["duration"] == 24
+    assert calls[0]["poll"]["allow_multiselect"] is True
+
+
+@pytest.mark.asyncio
+async def test_send_poll_validates_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    """send_poll should validate question/answers/duration bounds."""
+    bot = Bot(token="test-token")
+
+    async def fake_request(method: str, endpoint: str, **kwargs):  # pragma: no cover
+        return {"ok": True}
+
+    monkeypatch.setattr(bot, "request", fake_request)
+
+    with pytest.raises(ValueError):
+        await bot.send_poll(channel_id=1, question="", answers=["a", "b"])
+    with pytest.raises(ValueError):
+        await bot.send_poll(channel_id=1, question="Q", answers=["a"])
+    with pytest.raises(ValueError):
+        await bot.send_poll(channel_id=1, question="Q", answers=["a", "b"], duration_hours=999)
+
+
+@pytest.mark.asyncio
 async def test_send_message_requires_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     """send_message should fail if no content fields are provided."""
     bot = Bot(token="test-token")
