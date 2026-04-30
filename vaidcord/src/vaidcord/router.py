@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+import inspect
 from typing import Any, TypeVar
 
 from vaidcord.filters import (
@@ -80,6 +81,10 @@ class Router:
         self._parent: Router | None = None
         self._middlewares: list[MiddlewareConfig] = []
         self._router_filters: list[RouterFilterConfig] = []
+        self._dependencies: dict[str, Any] = {}
+        self._startup_handlers: list[Callable[[], Awaitable[Any]]] = []
+        self._shutdown_handlers: list[Callable[[], Awaitable[Any]]] = []
+        self._reconnect_handlers: list[Callable[[], Awaitable[Any]]] = []
 
     def _resolve_event_types(self, *event_types: EventType | str) -> list[EventType]:
         """Resolve event types from arguments."""
@@ -307,6 +312,53 @@ class Router:
         router._parent = self
         self._routers.append(router)
 
+    def provide(self, name: str, value: Any) -> None:
+        """Register dependency value available for handler injection by name."""
+        self._dependencies[name] = value
+
+    def _resolve_dependencies(self) -> dict[str, Any]:
+        deps: dict[str, Any] = {}
+        if self._parent is not None:
+            deps.update(self._parent._resolve_dependencies())
+        deps.update(self._dependencies)
+        return deps
+
+    def on_startup(self) -> Callable[[Callable[[], Awaitable[Any]]], Callable[[], Awaitable[Any]]]:
+        def decorator(handler: Callable[[], Awaitable[Any]]) -> Callable[[], Awaitable[Any]]:
+            self._startup_handlers.append(handler)
+            return handler
+        return decorator
+
+    def on_shutdown(self) -> Callable[[Callable[[], Awaitable[Any]]], Callable[[], Awaitable[Any]]]:
+        def decorator(handler: Callable[[], Awaitable[Any]]) -> Callable[[], Awaitable[Any]]:
+            self._shutdown_handlers.append(handler)
+            return handler
+        return decorator
+
+    def on_reconnect(self) -> Callable[[Callable[[], Awaitable[Any]]], Callable[[], Awaitable[Any]]]:
+        def decorator(handler: Callable[[], Awaitable[Any]]) -> Callable[[], Awaitable[Any]]:
+            self._reconnect_handlers.append(handler)
+            return handler
+        return decorator
+
+    async def emit_startup(self) -> None:
+        for router in self._routers:
+            await router.emit_startup()
+        for handler in self._startup_handlers:
+            await handler()
+
+    async def emit_shutdown(self) -> None:
+        for router in self._routers:
+            await router.emit_shutdown()
+        for handler in self._shutdown_handlers:
+            await handler()
+
+    async def emit_reconnect(self) -> None:
+        for router in self._routers:
+            await router.emit_reconnect()
+        for handler in self._reconnect_handlers:
+            await handler()
+
     def add_filter(
         self,
         filter_obj: Filter,
@@ -459,7 +511,17 @@ class Router:
                         return skipped
                 if filter_data:
                     current_event.context.setdefault("filter_data", {}).update(filter_data)
-                return await config.handler(current_event)
+                kwargs = {
+                    **self._resolve_dependencies(),
+                    **current_event.context.get("filter_data", {}),
+                }
+                signature = inspect.signature(config.handler)
+                accepted_kwargs = {
+                    name: value
+                    for name, value in kwargs.items()
+                    if name in signature.parameters
+                }
+                return await config.handler(current_event, **accepted_kwargs)
 
             try:
                 current_result = await self._execute_with_middlewares(event, guarded_handler)

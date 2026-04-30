@@ -67,8 +67,11 @@ class FilterExpr:
 
     callback: FilterCallable
 
-    async def __call__(self, event: Event) -> bool:
-        return await run_filter(self.callback, event)
+    async def __call__(self, event: Event) -> bool | dict[str, Any]:
+        result = self.callback(event)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
 
     def __and__(self, other: FilterLike) -> FilterExpr:
         other_expr = as_filter(other)
@@ -172,14 +175,29 @@ class MagicFilter:
         return self._cmp(lambda current: current is not None and value in current)
 
     def startswith(self, prefix: str) -> FilterExpr:
-        return self._cmp(lambda current: isinstance(current, str) and current.startswith(prefix))
+        async def _filter(event: Event) -> bool | dict[str, Any]:
+            current = self._extract(event)
+            if isinstance(current, str) and current.startswith(prefix):
+                return {"startswith": prefix, "matched_text": current}
+            return False
+
+        return FilterExpr(_filter)
 
     def endswith(self, suffix: str) -> FilterExpr:
         return self._cmp(lambda current: isinstance(current, str) and current.endswith(suffix))
 
     def regex(self, pattern: str, flags: int = 0) -> FilterExpr:
         regex = re.compile(pattern, flags)
-        return self._cmp(lambda current: isinstance(current, str) and regex.search(current) is not None)
+        async def _filter(event: Event) -> bool | dict[str, Any]:
+            current = self._extract(event)
+            if not isinstance(current, str):
+                return False
+            match = regex.search(current)
+            if match is None:
+                return False
+            return {"regex_match": match, "regex_groups": match.groupdict()}
+
+        return FilterExpr(_filter)
 
     def regexp(self, pattern: str, flags: int = 0) -> FilterExpr:
         """Alias used in aiogram docs."""

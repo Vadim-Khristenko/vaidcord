@@ -9,6 +9,8 @@ from typing import Any
 import pytest
 
 from vaidcord.fsm import FSMMiddleware, FSMScope, MemoryFSMStorage, StorageKey
+from vaidcord.filters import F
+from vaidcord.dispatcher import Dispatcher
 from vaidcord.router import Router
 from vaidcord.types import Channel, ChannelType, Event, EventType, Message, User
 
@@ -192,3 +194,45 @@ async def test_storage_supports_fast_bulk_policy_updates() -> None:
         await storage.get_state(StorageKey.member(guild_id=500, user_id=100))
         == "member:active"
     )
+
+
+@pytest.mark.asyncio
+async def test_router_dependency_injection_and_filter_data_injection() -> None:
+    router = Router(name="di")
+    router.provide("service_name", "svc")
+    captured: dict[str, Any] = {}
+
+    @router.on_message(F.message.content.startswith("/start"))
+    async def handler(event: Event, service_name: str, startswith: str) -> None:
+        captured["service_name"] = service_name
+        captured["startswith"] = startswith
+        captured["content"] = event.message.content if event.message else ""
+
+    await router.propagate_event(_make_message_event("/start hello"))
+    assert captured["service_name"] == "svc"
+    assert captured["startswith"] == "/start"
+    assert captured["content"] == "/start hello"
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_lifecycle_hooks_startup_shutdown_reconnect() -> None:
+    dp = Dispatcher()
+    calls: list[str] = []
+
+    @dp.on_startup()
+    async def _on_startup() -> None:
+        calls.append("startup")
+
+    @dp.on_shutdown()
+    async def _on_shutdown() -> None:
+        calls.append("shutdown")
+
+    @dp.on_reconnect()
+    async def _on_reconnect() -> None:
+        calls.append("reconnect")
+
+    await dp.startup()
+    await dp.reconnect()
+    await dp.shutdown()
+
+    assert calls == ["startup", "reconnect", "shutdown"]

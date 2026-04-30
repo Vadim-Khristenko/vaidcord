@@ -66,7 +66,7 @@ async def test_magic_filters_composition() -> None:
     assert await (F.user.id != 11)(event) is True
     assert await (F.user.id > 5)(event) is True
     assert await (F.user.id @ {9, 10, 11})(event) is True
-    assert await F.message.content.regexp(r"^!admin")(event) is True
+    assert bool(await F.message.content.regexp(r"^!admin")(event)) is True
     assert await (F.message.content.lower() == "!admin ping")(event) is True
     assert await (F.message.content.len() == 11)(event) is True
 
