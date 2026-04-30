@@ -25,6 +25,7 @@ __lazy_imports__ = {
     "BotState": ".bot",
     "GatewayIntent": ".bot",
     "Router": ".router",
+    "Dispatcher": ".dispatcher",
     "Middleware": ".router",
     "RouterFilterConfig": ".router",
     # Filters
@@ -119,6 +120,7 @@ __all__ = [
     # Core
     "Bot",
     "Router",
+    "Dispatcher",
     "Middleware",
     "RouterFilterConfig",
     "F",
