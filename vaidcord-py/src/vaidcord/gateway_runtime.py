@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
@@ -21,10 +22,16 @@ class GatewayRuntime:
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._heartbeat_interval: float | None = None
         self._heartbeat_task: asyncio.Task | None = None
+        self._last_heartbeat_sent_at: float | None = None
+        self._latency: float = 0.0
 
     @property
     def ws(self) -> aiohttp.ClientWebSocketResponse | None:
         return self._ws
+
+    @property
+    def latency(self) -> float:
+        return self._latency
 
     async def connect(self) -> None:
         from vaidcord.bot import BotState
@@ -63,6 +70,7 @@ class GatewayRuntime:
     async def _heartbeat(self) -> None:
         while self._bot._running and self._heartbeat_interval is not None:
             await asyncio.sleep(self._heartbeat_interval / 1000)
+            self._last_heartbeat_sent_at = time.monotonic()
             await self.send_payload({"op": 1, "d": self._bot._sequence})
 
     async def run(self) -> None:
@@ -87,6 +95,8 @@ class GatewayRuntime:
                         self._heartbeat_task.cancel()
                     self._heartbeat_task = asyncio.create_task(self._heartbeat())
                 elif op == 11:
+                    if self._last_heartbeat_sent_at is not None:
+                        self._latency = time.monotonic() - self._last_heartbeat_sent_at
                     logger.debug("Received heartbeat ACK")
             elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                 break

@@ -52,6 +52,8 @@ uv add "vaidcord[postgres]"
 await dp.start_polling(bot)
 await dp.start_websocket(bot)
 await dp.start_webhook(bot, drop_pending_updates=True)
+await dp.start_polling_many([bot_a, bot_b])
+await dp.start_webhook_many([bot_a, bot_b], drop_pending_updates=True)
 ```
 
 `Dispatcher()` auto-registers FSM middleware. If you do not pass storage, it uses in-memory storage by default.
