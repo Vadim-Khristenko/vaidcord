@@ -30,6 +30,10 @@ __lazy_imports__ = {
     "ApplicationRoleConnectionMetadata": ".application",
     "ApplicationRoleConnectionMetadataType": ".application",
     "Middleware": ".router",
+    "NextHandler": ".router",
+    "Handler": ".router",
+    "EventHandlerResult": ".router",
+    "LifecycleHandler": ".router",
     "RouterFilterConfig": ".router",
     # Filters
     "F": ".filters",
@@ -104,6 +108,7 @@ __lazy_imports__ = {
     "PostgresFSMStorage": ".fsm",
     "StateValue": ".fsm",
     "StorageKey": ".fsm",
+    "BaseFSMStorage": ".fsm",
 }
 
 
@@ -128,6 +133,10 @@ __all__ = [
     "ApplicationRoleConnectionMetadata",
     "ApplicationRoleConnectionMetadataType",
     "Middleware",
+    "NextHandler",
+    "Handler",
+    "EventHandlerResult",
+    "LifecycleHandler",
     "RouterFilterConfig",
     "F",
     "FilterExpr",
@@ -207,6 +216,7 @@ __all__ = [
     "PostgresFSMStorage",
     "StateValue",
     "StorageKey",
+    "BaseFSMStorage",
     # Version
     "__version__",
 ]
