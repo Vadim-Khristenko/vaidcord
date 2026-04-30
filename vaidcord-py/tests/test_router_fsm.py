@@ -72,6 +72,19 @@ async def test_middlewares_wrap_handler_in_priority_order() -> None:
 
 
 @pytest.mark.asyncio
+async def test_message_alias_works_like_on_message() -> None:
+    router = Router()
+    calls: list[str] = []
+
+    @router.message()
+    async def handler(event: Event) -> None:
+        calls.append("ok")
+
+    await router.propagate_event(_make_message_event())
+    assert calls == ["ok"]
+
+
+@pytest.mark.asyncio
 async def test_middleware_can_be_scoped_to_event_types() -> None:
     router = Router()
     calls: list[str] = []
@@ -236,3 +249,28 @@ async def test_dispatcher_lifecycle_hooks_startup_shutdown_reconnect() -> None:
     await dp.shutdown()
 
     assert calls == ["startup", "reconnect", "shutdown"]
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_include_routers_and_start_polling(monkeypatch: pytest.MonkeyPatch) -> None:
+    dp = Dispatcher()
+    r1 = Router(name="r1")
+    r2 = Router(name="r2")
+    dp.include_routers(r1, r2)
+    assert len(dp._routers) == 2
+
+    class FakeBot:
+        def __init__(self) -> None:
+            self.included = []
+            self.started = False
+
+        def include_router(self, router: Router) -> None:
+            self.included.append(router)
+
+        async def start(self) -> None:
+            self.started = True
+
+    bot = FakeBot()
+    await dp.start_polling(bot)  # type: ignore[arg-type]
+    assert bot.started is True
+    assert bot.included == [dp]
