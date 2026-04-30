@@ -8,7 +8,7 @@ bot handlers into modular components.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 import inspect
 from typing import Any, TypeVar
@@ -23,13 +23,16 @@ from vaidcord.filters import (
     run_filter_with_data,
 )
 from vaidcord.types import ChannelType, Event, EventType
+from vaidcord.typing import (
+    EventHandler,
+    EventHandlerResult,
+    FilterDataMap,
+    Middleware,
+    NextHandler,
+)
 
 T = TypeVar("T")
 
-EventHandlerResult = object | None
-Handler = Callable[[Event], Awaitable[EventHandlerResult]]
-NextHandler = Callable[[Event], Awaitable[EventHandlerResult]]
-Middleware = Callable[[Event, NextHandler], Awaitable[EventHandlerResult]]
 LifecycleHandler = Callable[[], Awaitable[None]]
 Filter = FilterLike
 
@@ -38,10 +41,11 @@ Filter = FilterLike
 class HandlerConfig:
     """Configuration for a registered handler."""
 
-    handler: Handler
+    handler: EventHandler
     event_types: list[EventType]
     filters: list[Filter] = field(default_factory=list)
     priority: int = 0
+    accepted_kwargs: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -106,7 +110,7 @@ class Router:
 
     def register_handler(
         self,
-        handler: Handler,
+        handler: EventHandler,
         *event_types: EventType | str,
         filters: list[Filter] | None = None,
         priority: int = 0,
@@ -126,6 +130,7 @@ class Router:
             event_types=resolved_types,
             filters=filters or [],
             priority=priority,
+            accepted_kwargs=self._extract_accepted_kwargs(handler),
         )
 
         for event_type in resolved_types:
@@ -137,7 +142,7 @@ class Router:
         self,
         *filters: Filter,
         priority: int = 0,
-    ) -> Callable[[Handler], Handler]:
+    ) -> Callable[[EventHandler], EventHandler]:
         """
         Decorator to register a message handler.
 
@@ -151,7 +156,7 @@ class Router:
                 ...
         """
 
-        def decorator(handler: Handler) -> Handler:
+        def decorator(handler: EventHandler) -> EventHandler:
             self.register_handler(
                 handler,
                 EventType.MESSAGE_CREATE,
@@ -166,7 +171,7 @@ class Router:
         self,
         *filters: Filter,
         priority: int = 0,
-    ) -> Callable[[Handler], Handler]:
+    ) -> Callable[[EventHandler], EventHandler]:
         """
         Handle message events coming from topic/thread-like channels.
         """
@@ -188,7 +193,7 @@ class Router:
         self,
         *filters: Filter,
         priority: int = 0,
-    ) -> Callable[[Handler], Handler]:
+    ) -> Callable[[EventHandler], EventHandler]:
         """Handle only guild-bound messages."""
 
         async def _guild_filter(event: Event) -> bool:
@@ -204,7 +209,7 @@ class Router:
         self,
         *filters: Filter,
         priority: int = 0,
-    ) -> Callable[[Handler], Handler]:
+    ) -> Callable[[EventHandler], EventHandler]:
         """Handle only DM/private messages."""
 
         async def _private_filter(event: Event) -> bool:
@@ -220,7 +225,7 @@ class Router:
         *event_types: EventType | str,
         filters: list[Filter] | None = None,
         priority: int = 0,
-    ) -> Callable[[Handler], Handler]:
+    ) -> Callable[[EventHandler], EventHandler]:
         """
         Decorator to register a handler for specific event types.
 
@@ -235,7 +240,7 @@ class Router:
                 ...
         """
 
-        def decorator(handler: Handler) -> Handler:
+        def decorator(handler: EventHandler) -> EventHandler:
             self.register_handler(
                 handler,
                 *event_types,
@@ -253,7 +258,7 @@ class Router:
         prefixes: tuple[str, ...] = ("/", "!", "."),
         ignore_case: bool = True,
         filters: list[Filter] | None = None,
-    ) -> Callable[[Handler], Handler]:
+    ) -> Callable[[EventHandler], EventHandler]:
         """Decorator for command handlers."""
         if not commands:
             raise ValueError("on_command requires at least one command")
@@ -270,7 +275,7 @@ class Router:
         *,
         priority: int = 0,
         filters: list[Filter] | None = None,
-    ) -> Callable[[Handler], Handler]:
+    ) -> Callable[[EventHandler], EventHandler]:
         """Shortcut for /start command."""
         return self.on_message(CommandStartFilter(), *(filters or []), priority=priority)
 
@@ -279,7 +284,7 @@ class Router:
         *,
         priority: int = 0,
         filters: list[Filter] | None = None,
-    ) -> Callable[[Handler], Handler]:
+    ) -> Callable[[EventHandler], EventHandler]:
         """Shortcut for /help command."""
         return self.on_message(CommandHelpFilter(), *(filters or []), priority=priority)
 
@@ -288,7 +293,7 @@ class Router:
         *,
         priority: int = 0,
         filters: list[Filter] | None = None,
-    ) -> Callable[[Handler], Handler]:
+    ) -> Callable[[EventHandler], EventHandler]:
         """Shortcut for /settings command."""
         return self.on_message(
             CommandSettingsFilter(),
@@ -324,7 +329,7 @@ class Router:
         self,
         *filters: Filter,
         priority: int = 0,
-    ) -> Callable[[Handler], Handler]:
+    ) -> Callable[[EventHandler], EventHandler]:
         """Aiogram-like alias for on_message."""
         return self.on_message(*filters, priority=priority)
 
@@ -338,6 +343,30 @@ class Router:
             deps.update(self._parent._resolve_dependencies())
         deps.update(self._dependencies)
         return deps
+
+    @staticmethod
+    def _extract_accepted_kwargs(handler: EventHandler) -> set[str]:
+        signature = inspect.signature(handler)
+        accepted: set[str] = set()
+        for name, param in signature.parameters.items():
+            if name == "event":
+                continue
+            if param.kind in {inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY}:
+                accepted.add(name)
+        return accepted
+
+    def _build_handler_kwargs(
+        self,
+        *,
+        dependencies: Mapping[str, Any],
+        filter_data: Mapping[str, Any],
+        accepted_kwargs: set[str],
+    ) -> dict[str, Any]:
+        """Create deterministic kwargs map for DI-style handler invocation."""
+        full_kwargs = {**dependencies, **filter_data}
+        if not accepted_kwargs:
+            return {}
+        return {name: value for name, value in full_kwargs.items() if name in accepted_kwargs}
 
     def on_startup(self) -> Callable[[LifecycleHandler], LifecycleHandler]:
         def decorator(handler: LifecycleHandler) -> LifecycleHandler:
@@ -476,13 +505,14 @@ class Router:
     async def _execute_with_middlewares(
         self,
         event: Event,
-        handler: Handler,
+        handler: EventHandler,
     ) -> EventHandlerResult:
         async def call(index: int, current_event: Event) -> EventHandlerResult:
             if index >= len(chain):
                 return await handler(current_event)
             middleware = chain[index]
-            return await middleware(current_event, lambda next_event: call(index + 1, next_event))
+            next_handler: NextHandler = lambda next_event: call(index + 1, next_event)
+            return await middleware(current_event, next_handler)
 
         chain = self._resolve_middleware_chain(event.type)
         return await call(0, event)
@@ -515,7 +545,7 @@ class Router:
         ]
         for config in handlers:
             async def guarded_handler(current_event: Event) -> EventHandlerResult:
-                filter_data: dict[str, Any] = {}
+                filter_data: FilterDataMap = {}
                 for filter_func in [*router_filters, *config.filters]:
                     try:
                         passed, data = await run_filter_with_data(filter_func, current_event)
@@ -527,16 +557,11 @@ class Router:
                         return skipped
                 if filter_data:
                     current_event.context.setdefault("filter_data", {}).update(filter_data)
-                kwargs = {
-                    **self._resolve_dependencies(),
-                    **current_event.context.get("filter_data", {}),
-                }
-                signature = inspect.signature(config.handler)
-                accepted_kwargs = {
-                    name: value
-                    for name, value in kwargs.items()
-                    if name in signature.parameters
-                }
+                accepted_kwargs = self._build_handler_kwargs(
+                    dependencies=self._resolve_dependencies(),
+                    filter_data=current_event.context.get("filter_data", {}),
+                    accepted_kwargs=config.accepted_kwargs,
+                )
                 return await config.handler(current_event, **accepted_kwargs)
 
             try:
@@ -597,7 +622,7 @@ class Router:
         priority: int = 0,
         filters: list[Filter] | None = None,
         scope: str = "member",
-    ) -> Callable[[Handler], Handler]:
+    ) -> Callable[[EventHandler], EventHandler]:
         """
         Decorator that handles only MESSAGE_CREATE events in specific FSM states.
         """

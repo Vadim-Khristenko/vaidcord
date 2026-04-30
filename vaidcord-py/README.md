@@ -77,3 +77,61 @@ await dp.start_webhook_many([bot_a, bot_b], drop_pending_updates=True)
 - [docs/APPLICATION_API.md](docs/APPLICATION_API.md) - Discord application resources and role connection metadata
 - [docs/OAUTH2.md](docs/OAUTH2.md) - OAuth2 helpers and token workflows
 - [examples/README.md](examples/README.md) - quick index of runnable examples
+
+## Typing guide
+
+`Router` handlers and middleware are typed via `vaidcord.typing` protocols:
+
+- `EventHandler`: `async def handler(event: Event, **kwargs: Any) -> object | None`
+- `Middleware`: `async def middleware(event: Event, next_handler: NextHandler) -> object | None`
+- `FilterDataMap`: alias for filter payload (`dict[str, Any]`) injected into handler kwargs.
+- `AbstractEventHandler` / `AbstractMiddleware`: ABC-based option for class-style architecture.
+- `DIEventCallable` / `DIWrapper`: generic helpers (`TypeVar`, `ParamSpec`, `Concatenate`) for advanced wrappers.
+
+```python
+from vaidcord.router import Router
+from vaidcord.types import Event
+
+router = Router()
+
+@router.on_message()
+async def echo(event: Event) -> None:
+    await event.message.channel.send("pong")
+```
+
+```python
+from vaidcord.filters import F
+from vaidcord.router import Router
+from vaidcord.types import Event
+
+router = Router()
+
+@router.on_message(F.message.content.startswith("/set "))
+async def set_value(event: Event, matched_text: str) -> None:
+    # `matched_text` comes from filter-return payload
+    await event.message.channel.send(f"Got: {matched_text}")
+```
+
+```python
+from vaidcord.router import Router
+from vaidcord.typing import NextHandler
+from vaidcord.types import Event
+
+router = Router()
+
+@router.middleware()
+async def trace(event: Event, next_handler: NextHandler):
+    print("before", event.type)
+    result = await next_handler(event)
+    print("after", event.type)
+    return result
+```
+
+```python
+from vaidcord.typing import AbstractEventHandler
+from vaidcord.types import Event
+
+class PingHandler(AbstractEventHandler[Event]):
+    async def __call__(self, event: Event, **kwargs: object) -> None:
+        await event.message.channel.send("pong")
+```
