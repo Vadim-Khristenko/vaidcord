@@ -678,6 +678,20 @@ class Bot(Router):
         self._channels[channel.id] = channel
         return channel
 
+    async def fetch_guild(self, guild_id: int) -> Guild:
+        """Fetch and parse a guild from the API."""
+        data = await self.request("GET", f"/guilds/{guild_id}")
+        guild = self._parse_guild(data)
+        self._guilds[guild.id] = guild
+        return guild
+
+    async def fetch_user(self, user_id: int) -> User:
+        """Fetch and parse a user from the API."""
+        data = await self.request("GET", f"/users/{user_id}")
+        user = self._parse_user(data)
+        self._users[user.id] = user
+        return user
+
     def run(self) -> None:
         """Run the bot (blocking)."""
         try:
