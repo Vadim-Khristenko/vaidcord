@@ -10,7 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from vaidcord.bot import Bot
 
 
 class EventType(Enum):
@@ -216,6 +219,7 @@ class Message:
     stickers: list[dict[str, Any]] = field(default_factory=list)
     guild: Guild | None = None
     member: dict[str, Any] = field(default_factory=dict)
+    bot: Bot | None = field(default=None, repr=False, compare=False)
 
     @property
     def guild_id(self) -> int | None:
@@ -231,6 +235,18 @@ class Message:
     def author_id(self) -> int:
         """Get the author's user ID."""
         return self.author.id
+
+    async def reply(self, content: str, **kwargs: Any) -> Message:
+        """Reply to this message using Discord message reference."""
+        if self.bot is None:
+            raise RuntimeError("Message is not bound to a bot instance")
+        return await self.bot.reply(self.channel_id, self.id, content, **kwargs)
+
+    async def answer(self, content: str, **kwargs: Any) -> Message:
+        """Send a regular message to the same channel without reply reference."""
+        if self.bot is None:
+            raise RuntimeError("Message is not bound to a bot instance")
+        return await self.bot.send_message(self.channel_id, content, **kwargs)
 
 
 @dataclass

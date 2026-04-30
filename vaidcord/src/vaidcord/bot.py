@@ -428,6 +428,7 @@ class Bot(Router):
             pinned=data.get("pinned", False),
             type=data.get("type"),
             guild=guild,
+            bot=self,
         )
 
     async def _receive_messages(self) -> None:

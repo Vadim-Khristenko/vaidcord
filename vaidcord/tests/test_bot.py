@@ -1,8 +1,11 @@
 """Tests for bot lifecycle and convenience API."""
 
+from datetime import datetime
+
 import pytest
 
 from vaidcord.bot import Bot, BotState, GatewayIntent
+from vaidcord.types import Channel, ChannelType, Message, User
 
 
 @pytest.mark.asyncio
@@ -205,3 +208,57 @@ def test_gateway_intent_presets() -> None:
     """Intent presets should be consistent and non-empty."""
     assert GatewayIntent.default() > 0
     assert GatewayIntent.all() >= GatewayIntent.default()
+
+
+@pytest.mark.asyncio
+async def test_message_reply_calls_bot_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Message.reply should delegate to bot.reply with message id reference."""
+    bot = Bot(token="test-token")
+    calls: list[tuple[int, int, str]] = []
+
+    async def fake_reply(channel_id: int, message_id: int, content: str, **kwargs):
+        calls.append((channel_id, message_id, content))
+        return {"ok": True, "kwargs": kwargs}
+
+    monkeypatch.setattr(bot, "reply", fake_reply)
+
+    msg = Message(
+        id=55,
+        channel=Channel(id=100, type=ChannelType.TEXT),
+        author=User(id=1, username="u", discriminator="0"),
+        content="hello",
+        timestamp=datetime.now(),
+        bot=bot,
+    )
+
+    response = await msg.reply("pong", tts=True)
+    assert calls == [(100, 55, "pong")]
+    assert response["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_message_answer_calls_send_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Message.answer should delegate to bot.send_message for same channel."""
+    bot = Bot(token="test-token")
+    calls: list[tuple[int, str]] = []
+
+    async def fake_send(channel_id: int, content: str, **kwargs):
+        calls.append((channel_id, content))
+        return {"ok": True, "kwargs": kwargs}
+
+    monkeypatch.setattr(bot, "send_message", fake_send)
+
+    msg = Message(
+        id=12,
+        channel=Channel(id=777, type=ChannelType.TEXT),
+        author=User(id=2, username="u2", discriminator="0"),
+        content="hello",
+        timestamp=datetime.now(),
+        bot=bot,
+    )
+
+    response = await msg.answer("plain", embeds=[{"title": "x"}])
+    assert calls == [(777, "plain")]
+    assert response["ok"] is True
