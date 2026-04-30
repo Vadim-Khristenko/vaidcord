@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Protocol
 
 from vaidcord.fsm import FSMMiddleware, MemoryFSMStorage
@@ -30,6 +31,8 @@ class Dispatcher(Router):
         resolved_storage = storage or MemoryFSMStorage()
         self.fsm = fsm or FSMMiddleware(storage=resolved_storage)
         self.add_middleware(self.fsm)
+        self._active_bots: set[DispatcherBotProtocol] = set()
+        self._started = False
         if bot is not None:
             self.provide("bot", bot)
 
@@ -61,17 +64,42 @@ class Dispatcher(Router):
         self.bot = bot
         self.provide("bot", bot)
         bot.include_router(self)
-        await self.startup()
+        self._active_bots.add(bot)
+        if not self._started:
+            await self.startup()
+            self._started = True
         try:
             await bot.start()
         finally:
-            await self.shutdown()
+            self._active_bots.discard(bot)
+            if not self._active_bots and self._started:
+                await self.shutdown()
+                self._started = False
 
     async def start_websocket(self, bot: DispatcherBotProtocol) -> None:
         """Alias for explicit websocket startup."""
         await self.start_polling(bot)
 
+    async def start_polling_many(self, bots: list[DispatcherBotProtocol]) -> None:
+        """Start multiple bots concurrently with shared dispatcher wiring."""
+        if not bots:
+            raise ValueError("start_polling_many requires at least one bot")
+        await asyncio.gather(*(self.start_polling(bot) for bot in bots))
+
     async def start_webhook(self, bot: DispatcherBotProtocol, *, drop_pending_updates: bool = False) -> None:
         """Webhook-style startup helper (webhook server integration is app-defined)."""
         await bot.delete_webhook(drop_pending_updates=drop_pending_updates)
         await self.start_polling(bot)
+
+    async def start_webhook_many(
+        self,
+        bots: list[DispatcherBotProtocol],
+        *,
+        drop_pending_updates: bool = False,
+    ) -> None:
+        """Webhook-style startup for multiple bots concurrently."""
+        if not bots:
+            raise ValueError("start_webhook_many requires at least one bot")
+        await asyncio.gather(
+            *(self.start_webhook(bot, drop_pending_updates=drop_pending_updates) for bot in bots)
+        )

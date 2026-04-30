@@ -170,8 +170,7 @@ class Bot(Router):
     @property
     def latency(self) -> float:
         """Get the WebSocket latency in seconds."""
-        # Will be implemented with heartbeat ack tracking
-        return 0.0
+        return self.runtime.latency
 
     async def _create_session(self) -> aiohttp.ClientSession:
         """Create an aiohttp session for API requests."""
@@ -459,11 +458,7 @@ class Bot(Router):
                 "send_message requires at least one of content/embeds/components/"
                 "sticker_ids/message_reference"
             )
-        return await self.request(
-            "POST",
-            f"/channels/{channel_id}/messages",
-            json=payload,
-        )
+        return await self.api_client.send_message(channel_id, payload)
 
     async def reply(
         self,
@@ -532,7 +527,7 @@ class Bot(Router):
 
     async def trigger_typing(self, channel_id: int) -> None:
         """Trigger a typing indicator in a channel."""
-        await self.request("POST", f"/channels/{channel_id}/typing")
+        await self.api_client.trigger_typing(channel_id)
 
     async def delete_webhook(self, *, drop_pending_updates: bool = False) -> dict[str, Any]:
         """Compatibility helper for aiogram-like startup flows."""
@@ -576,21 +571,21 @@ class Bot(Router):
 
     async def fetch_channel(self, channel_id: int) -> Channel:
         """Fetch and parse a channel from the API."""
-        data = await self.request("GET", f"/channels/{channel_id}")
+        data = await self.api_client.fetch_channel(channel_id)
         channel = self._parse_channel(data)
         self._channels[channel.id] = channel
         return channel
 
     async def fetch_guild(self, guild_id: int) -> Guild:
         """Fetch and parse a guild from the API."""
-        data = await self.request("GET", f"/guilds/{guild_id}")
+        data = await self.api_client.fetch_guild(guild_id)
         guild = self._parse_guild(data)
         self._guilds[guild.id] = guild
         return guild
 
     async def fetch_user(self, user_id: int) -> User:
         """Fetch and parse a user from the API."""
-        data = await self.request("GET", f"/users/{user_id}")
+        data = await self.api_client.fetch_user(user_id)
         user = self._parse_user(data)
         self._users[user.id] = user
         return user

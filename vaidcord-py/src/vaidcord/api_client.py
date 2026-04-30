@@ -6,13 +6,49 @@ from vaidcord.http import HTTPClient, HTTPConfig
 
 
 class APIClient:
-    """Discord REST API client facade built on top of HTTPClient."""
+    """Discord REST API facade with endpoint helpers on top of HTTPClient."""
 
     def __init__(self, token: str, *, base_url: str = "https://discord.com/api", api_version: str = "10") -> None:
         self._http = HTTPClient(HTTPConfig(token=token, base_url=base_url, api_version=api_version))
 
+    def _normalize_endpoint(self, endpoint: str) -> str:
+        if not endpoint.startswith("/"):
+            return f"/{endpoint}"
+        return endpoint
+
     async def request(self, method: str, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        endpoint = self._normalize_endpoint(endpoint)
         return await self._http.request(method, endpoint, **kwargs)
+
+    async def get(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        return await self.request("GET", endpoint, **kwargs)
+
+    async def post(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        return await self.request("POST", endpoint, **kwargs)
+
+    async def patch(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        return await self.request("PATCH", endpoint, **kwargs)
+
+    async def put(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        return await self.request("PUT", endpoint, **kwargs)
+
+    async def delete(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        return await self.request("DELETE", endpoint, **kwargs)
+
+    async def send_message(self, channel_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.post(f"/channels/{channel_id}/messages", json=payload)
+
+    async def trigger_typing(self, channel_id: int) -> dict[str, Any]:
+        return await self.post(f"/channels/{channel_id}/typing")
+
+    async def fetch_channel(self, channel_id: int) -> dict[str, Any]:
+        return await self.get(f"/channels/{channel_id}")
+
+    async def fetch_guild(self, guild_id: int) -> dict[str, Any]:
+        return await self.get(f"/guilds/{guild_id}")
+
+    async def fetch_user(self, user_id: int) -> dict[str, Any]:
+        return await self.get(f"/users/{user_id}")
 
     async def close(self) -> None:
         await self._http.close()
