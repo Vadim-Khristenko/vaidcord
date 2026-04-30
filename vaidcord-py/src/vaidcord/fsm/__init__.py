@@ -1,4 +1,6 @@
-from .context import FSMContext, FSMManager, FSMMiddleware, FSMNextHandler
+from vaidcord.typing import NextHandler
+
+from .context import FSMContext, FSMManager, FSMMiddleware
 from .storage import (
     BaseFSMStorage,
     FSMScope,
@@ -24,5 +26,5 @@ __all__ = [
     "FSMContext",
     "FSMManager",
     "FSMMiddleware",
-    "FSMNextHandler",
+    "NextHandler",
 ]
