@@ -521,6 +521,7 @@ class Bot(Router):
         sticker_ids: list[int] | None = None,
         message_reference: dict[str, Any] | None = None,
         flags: int | None = None,
+        poll: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Send a message with a convenient async API.
@@ -542,8 +543,11 @@ class Bot(Router):
             payload["message_reference"] = message_reference
         if flags is not None:
             payload["flags"] = flags
+        if poll is not None:
+            payload["poll"] = poll
         has_sendable_content = any(
-            payload.get(field) for field in ("content", "embeds", "components", "sticker_ids")
+            payload.get(field)
+            for field in ("content", "embeds", "components", "sticker_ids", "poll")
         ) or message_reference is not None
         if not has_sendable_content:
             raise ValueError(
@@ -573,6 +577,52 @@ class Bot(Router):
             tts=tts,
             allowed_mentions=allowed_mentions,
             message_reference=message_reference,
+        )
+
+    async def send_poll(
+        self,
+        channel_id: int,
+        question: str,
+        answers: list[str],
+        *,
+        duration_hours: int = 24,
+        allow_multiselect: bool = False,
+        content: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Send a Discord poll message.
+
+        Based on Discord poll create request object:
+        - up to 10 answers
+        - duration in hours (max 32 days = 768h)
+        """
+        if not question.strip():
+            raise ValueError("Poll question cannot be empty")
+        if len(answers) < 2:
+            raise ValueError("Poll requires at least 2 answers")
+        if len(answers) > 10:
+            raise ValueError("Poll supports at most 10 answers")
+        if duration_hours < 1 or duration_hours > 768:
+            raise ValueError("Poll duration must be between 1 and 768 hours")
+
+        normalized_answers = []
+        for answer in answers:
+            value = answer.strip()
+            if not value:
+                raise ValueError("Poll answers cannot be empty")
+            normalized_answers.append({"poll_media": {"text": value}})
+
+        poll_payload: dict[str, Any] = {
+            "question": {"text": question.strip()},
+            "answers": normalized_answers,
+            "duration": duration_hours,
+            "allow_multiselect": allow_multiselect,
+        }
+
+        return await self.send_message(
+            channel_id=channel_id,
+            content=content,
+            poll=poll_payload,
         )
 
     async def trigger_typing(self, channel_id: int) -> None:

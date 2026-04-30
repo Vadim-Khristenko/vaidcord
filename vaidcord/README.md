@@ -156,6 +156,12 @@ async def send_startup_message() -> None:
 
 # Typing indicators and richer message payloads are supported, too:
 # await bot.trigger_typing(1234567890)
+# await bot.send_poll(
+#     channel_id=1234567890,
+#     question="Ship this release?",
+#     answers=["Yes", "No"],
+#     duration_hours=24,
+# )
 # await bot.send_message(
 #     1234567890,
 #     components=[{"type": 1, "components": [...]}],
