@@ -20,6 +20,22 @@ fsm-backends = [
     "motor>=3.6.0",
     "asyncpg>=0.30.0",
 ]
+mongo = [
+    "motor>=3.6.0",
+    "pymongo>=4.9.0",
+]
+redis = [
+    "redis>=5.0.0",
+]
+postgres = [
+    "asyncpg>=0.30.0",
+]
+all-backends = [
+    "redis>=5.0.0",
+    "motor>=3.6.0",
+    "pymongo>=4.9.0",
+    "asyncpg>=0.30.0",
+]
 
 [build-system]
 requires = ["hatchling"]

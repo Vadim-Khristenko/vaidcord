@@ -1,15 +1,25 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Protocol
 
 from .base import FSMScope, StateValue, StorageKey
+
+
+class AsyncPostgresConn(Protocol):
+    async def fetchrow(self, query: str, *args: Any) -> Any: ...
+    async def execute(self, query: str, *args: Any) -> Any: ...
 
 
 class PostgresFSMStorage:
     """Async PostgreSQL FSM storage (requires optional `asyncpg` pool/connection)."""
 
-    def __init__(self, conn: Any | None = None, *, table: str = "vaidcord_fsm") -> None:
+    def __init__(
+        self,
+        conn: AsyncPostgresConn | None = None,
+        *,
+        table: str = "vaidcord_fsm",
+    ) -> None:
         if conn is None:
             raise ImportError(
                 "PostgresFSMStorage requires asyncpg connection/pool. "

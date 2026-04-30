@@ -1,14 +1,20 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
 from .base import FSMScope, StateValue, StorageKey
+
+
+class AsyncMongoCollection(Protocol):
+    async def find_one(self, *args: Any, **kwargs: Any) -> dict[str, Any] | None: ...
+    async def update_one(self, *args: Any, **kwargs: Any) -> Any: ...
+    async def delete_one(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 class MongoFSMStorage:
     """Async MongoDB FSM storage (requires optional `motor`)."""
 
-    def __init__(self, collection: Any | None = None) -> None:
+    def __init__(self, collection: AsyncMongoCollection | None = None) -> None:
         if collection is None:
             raise ImportError(
                 "MongoFSMStorage requires an async Motor collection. "
