@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -161,6 +163,62 @@ class HTTPClient:
         self._global_rate_limit: datetime | None = None
         self._lock = asyncio.Lock()
 
+    @staticmethod
+    def _sanitize_headers(headers: dict[str, Any] | None) -> dict[str, Any]:
+        """Return headers with sensitive values redacted."""
+        if not headers:
+            return {}
+
+        sensitive_keys = {
+            "authorization",
+            "proxy-authorization",
+            "x-api-key",
+            "cookie",
+            "set-cookie",
+        }
+        sanitized: dict[str, Any] = {}
+        for key, value in headers.items():
+            if key.lower() in sensitive_keys:
+                sanitized[key] = "<redacted>"
+            else:
+                sanitized[key] = value
+        return sanitized
+
+    @classmethod
+    def _sanitize_payload(cls, payload: Any) -> Any:
+        """Return payload with sensitive values redacted."""
+        sensitive_keys = {"token", "authorization", "password", "secret", "api_key"}
+
+        if isinstance(payload, dict):
+            sanitized: dict[str, Any] = {}
+            for key, value in payload.items():
+                if key.lower() in sensitive_keys:
+                    sanitized[key] = "<redacted>"
+                else:
+                    sanitized[key] = cls._sanitize_payload(value)
+            return sanitized
+        if isinstance(payload, list):
+            return [cls._sanitize_payload(item) for item in payload]
+        return payload
+
+    @staticmethod
+    def _extract_rate_limit_fields(headers: dict[str, str] | None) -> dict[str, Any]:
+        """Extract common Discord rate-limit fields from headers."""
+        headers = headers or {}
+        return {
+            "limit": headers.get("X-RateLimit-Limit"),
+            "remaining": headers.get("X-RateLimit-Remaining"),
+            "reset_after": headers.get("X-RateLimit-Reset-After"),
+            "reset": headers.get("X-RateLimit-Reset"),
+            "bucket": headers.get("X-RateLimit-Bucket"),
+            "global": headers.get("X-RateLimit-Global"),
+        }
+
+    def _log_http_event(self, event: str, request_id: str, **fields: Any) -> None:
+        """Emit structured HTTP log events."""
+        payload = {"event": event, "request_id": request_id, **fields}
+        logger.info(payload)
+
     @property
     def headers(self) -> dict[str, str]:
         """Get default headers for requests."""
@@ -188,7 +246,7 @@ class HTTPClient:
             self._session = None
 
     async def _check_rate_limit(
-        self, route: str, response: aiohttp.ClientResponse
+        self, route: str, response: aiohttp.ClientResponse, request_id: str
     ) -> RateLimitInfo | None:
         """Check and handle rate limit headers."""
         headers = response.headers
@@ -212,14 +270,30 @@ class HTTPClient:
         # Check for global rate limit
         if headers.get("X-RateLimit-Global") == "true":
             self._global_rate_limit = reset
-            logger.warning(f"Global rate limit hit. Reset at {reset}")
+            self._log_http_event(
+                "http.rate_limit.global",
+                request_id,
+                route=route,
+                bucket=bucket,
+                reset_after=reset_after,
+                remaining=remaining,
+                reset_at=reset.isoformat(),
+            )
 
         # Store rate limit info
         self._rate_limits[route] = info
 
         if remaining == 0:
             wait_time = reset_after
-            logger.debug(f"Rate limit hit for {route}. Waiting {wait_time}s")
+            self._log_http_event(
+                "http.rate_limit.route",
+                request_id,
+                route=route,
+                bucket=bucket,
+                reset_after=reset_after,
+                remaining=remaining,
+                wait_time_s=wait_time,
+            )
             await asyncio.sleep(wait_time)
 
         return info
@@ -228,12 +302,29 @@ class HTTPClient:
         self,
         method: str,
         endpoint: str,
+        request_id: str,
+        has_json: bool = False,
+        sanitized_payload: Any = None,
         **kwargs: Any,
     ) -> HTTPResponseData:
         """Make a request with automatic retries."""
         last_exception: Exception | None = None
+        request_headers = self._sanitize_headers(kwargs.get("headers"))
+        has_params = kwargs.get("params") is not None
 
         for attempt in range(self.config.max_retries):
+            started = time.perf_counter()
+            self._log_http_event(
+                "http.request.start",
+                request_id,
+                method=method,
+                route=endpoint,
+                attempt=attempt + 1,
+                has_json=has_json,
+                has_params=has_params,
+                headers=request_headers,
+                payload=sanitized_payload,
+            )
             try:
                 session = await self._create_session()
                 url = f"{self.config.base_url}/v{self.config.api_version}{endpoint}"
@@ -250,19 +341,38 @@ class HTTPClient:
                     **kwargs,
                 ) as response:
                     # Check rate limits
-                    await self._check_rate_limit(endpoint, response)
+                    await self._check_rate_limit(endpoint, response, request_id)
 
                     # Handle server errors with retry
                     if response.status >= 500:
                         if attempt < self.config.max_retries - 1:
                             delay = self.config.retry_delay * (2**attempt)
-                            logger.warning(
-                                f"Server error {response.status}, retrying in {delay}s"
+                            self._log_http_event(
+                                "http.request.retry",
+                                request_id,
+                                method=method,
+                                route=endpoint,
+                                attempt=attempt + 1,
+                                delay_s=delay,
+                                reason="server_error",
+                                status=response.status,
                             )
                             await asyncio.sleep(delay)
                             continue
 
                     body = await response.read()
+                    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+                    self._log_http_event(
+                        "http.request.done",
+                        request_id,
+                        method=method,
+                        route=endpoint,
+                        attempt=attempt + 1,
+                        status=response.status,
+                        duration_ms=duration_ms,
+                        rate_limit=self._extract_rate_limit_fields(dict(response.headers)),
+                        response_size=len(body),
+                    )
                     return HTTPResponseData(
                         status=response.status,
                         headers=dict(response.headers),
@@ -271,11 +381,32 @@ class HTTPClient:
 
             except (TimeoutError, aiohttp.ClientError) as e:
                 last_exception = e
+                duration_ms = round((time.perf_counter() - started) * 1000, 2)
                 if attempt < self.config.max_retries - 1:
                     delay = self.config.retry_delay * (2**attempt)
-                    logger.warning(f"Request failed: {e}, retrying in {delay}s")
+                    self._log_http_event(
+                        "http.request.retry",
+                        request_id,
+                        method=method,
+                        route=endpoint,
+                        attempt=attempt + 1,
+                        delay_s=delay,
+                        reason=type(e).__name__,
+                        error=str(e),
+                        duration_ms=duration_ms,
+                    )
                     await asyncio.sleep(delay)
                 else:
+                    self._log_http_event(
+                        "http.request.error",
+                        request_id,
+                        method=method,
+                        route=endpoint,
+                        attempt=attempt + 1,
+                        reason=type(e).__name__,
+                        message=str(e),
+                        duration_ms=duration_ms,
+                    )
                     raise
 
         if last_exception:
@@ -309,11 +440,23 @@ class HTTPClient:
             await asyncio.sleep(wait_time)
 
         # Prepare request data
-        if "json" in kwargs and kwargs["json"] is not None:
+        request_id = str(uuid.uuid4())
+        has_json = "json" in kwargs and kwargs["json"] is not None
+        sanitized_payload = (
+            self._sanitize_payload(kwargs["json"]) if has_json else None
+        )
+        if has_json:
             kwargs["data"] = json.dumps(kwargs["json"])
             del kwargs["json"]
 
-        response = await self._request_with_retry(method, endpoint, **kwargs)
+        response = await self._request_with_retry(
+            method,
+            endpoint,
+            request_id,
+            has_json=has_json,
+            sanitized_payload=sanitized_payload,
+            **kwargs,
+        )
 
         # Handle error responses
         if response.status >= 400:
@@ -326,7 +469,17 @@ class HTTPClient:
                 }
 
             discord_error = DiscordError.from_response(response.status, error_data)
-            logger.error(f"Discord API error: {discord_error}")
+            self._log_http_event(
+                "http.request.error",
+                request_id,
+                method=method,
+                route=endpoint,
+                status=response.status,
+                attempt=1,
+                code=discord_error.code,
+                message=discord_error.message,
+                duration_ms=None,
+            )
             raise discord_error
 
         # Parse successful response
