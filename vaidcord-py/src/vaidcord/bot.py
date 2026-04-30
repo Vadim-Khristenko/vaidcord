@@ -630,6 +630,14 @@ class Bot(Router):
         """Trigger a typing indicator in a channel."""
         await self.request("POST", f"/channels/{channel_id}/typing")
 
+    async def delete_webhook(self, *, drop_pending_updates: bool = False) -> dict[str, Any]:
+        """Compatibility helper for aiogram-like startup flows."""
+        return await self.request(
+            "POST",
+            "/webhooks",
+            json={"drop_pending_updates": drop_pending_updates},
+        )
+
     async def fetch_channel(self, channel_id: int) -> Channel:
         """Fetch and parse a channel from the API."""
         data = await self.request("GET", f"/channels/{channel_id}")

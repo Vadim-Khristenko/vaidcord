@@ -31,3 +31,16 @@ class Dispatcher(Router):
 
     async def feed_event(self, event: Any) -> Any:
         return await self.propagate_event(event)
+
+    async def start_polling(self, bot: Bot) -> None:
+        """
+        Start bot and route events through dispatcher routers.
+        """
+        self.bot = bot
+        self.provide("bot", bot)
+        bot.include_router(self)
+        await self.startup()
+        try:
+            await bot.start()
+        finally:
+            await self.shutdown()

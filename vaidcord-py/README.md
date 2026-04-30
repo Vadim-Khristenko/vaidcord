@@ -55,6 +55,35 @@ if __name__ == "__main__":
     bot.run()
 ```
 
+## Aiogram-like architecture example (Bot + Dispatcher + Routers)
+
+```python
+import asyncio
+from vaidcord import Bot, Dispatcher, Router, F
+
+questions = Router(name="questions")
+different_types = Router(name="different_types")
+
+@different_types.message(F.message.content)
+async def message_with_text(event):
+    await event.message.answer("Это текстовое сообщение!")
+
+@questions.on_command("start")
+async def cmd_start(event):
+    await event.message.answer("Вы довольны своей работой?")
+
+async def main():
+    bot = Bot(token="TOKEN")
+    dp = Dispatcher()
+    dp.include_routers(questions, different_types)
+
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
 ## Core Components
 
 ### Bot

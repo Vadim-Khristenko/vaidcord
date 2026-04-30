@@ -312,6 +312,19 @@ class Router:
         router._parent = self
         self._routers.append(router)
 
+    def include_routers(self, *routers: Router) -> None:
+        """Aiogram-like helper to include multiple routers in one call."""
+        for router in routers:
+            self.include_router(router)
+
+    def message(
+        self,
+        *filters: Filter,
+        priority: int = 0,
+    ) -> Callable[[Handler], Handler]:
+        """Aiogram-like alias for on_message."""
+        return self.on_message(*filters, priority=priority)
+
     def provide(self, name: str, value: Any) -> None:
         """Register dependency value available for handler injection by name."""
         self._dependencies[name] = value
