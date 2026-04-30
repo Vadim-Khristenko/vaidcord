@@ -46,6 +46,24 @@ uv add "vaidcord[postgres]"
 - Use `@router.on_message_state(...)` when a flow depends on FSM state.
 - Use `MockBot` or `MockDiscordServer` for deterministic tests.
 
+## Send DM to a user
+
+`Bot.send_dm(user_id, content, **kwargs)` opens or reuses the DM channel via
+`POST /users/@me/channels`, then sends the message with the same payload options
+as `send_message` (`embeds`, `components`, etc.).
+
+There is also an alias: `send_message_to_user(...)`.
+
+```python
+message = await bot.send_dm(
+    user_id=123456789012345678,
+    content="Hi from VaidCord!",
+    embeds=[{"title": "DM"}],
+)
+```
+
+See runnable example: [examples/send_dm_to_user.py](examples/send_dm_to_user.py).
+
 ## Filter composition semantics
 
 - Filter may return `bool` or `dict`.
