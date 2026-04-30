@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Protocol
 
-from vaidcord.fsm import FSMMiddleware, MemoryFSMStorage
-from vaidcord.router import Router
+from vaidcord.fsm import BaseFSMStorage, FSMMiddleware, MemoryFSMStorage
+from vaidcord.router import EventHandlerResult, Router
+from vaidcord.types import Event
 
 
 class DispatcherBotProtocol(Protocol):
@@ -23,7 +24,7 @@ class Dispatcher(Router):
         bot: DispatcherBotProtocol | None = None,
         *,
         fsm: FSMMiddleware | None = None,
-        storage: Any | None = None,
+        storage: BaseFSMStorage | None = None,
         name: str = "dispatcher",
     ) -> None:
         super().__init__(name=name)
@@ -49,7 +50,7 @@ class Dispatcher(Router):
     async def reconnect(self) -> None:
         await self.emit_reconnect()
 
-    async def feed_event(self, event: Any) -> Any:
+    async def feed_event(self, event: Event) -> EventHandlerResult:
         return await self.propagate_event(event)
 
     def include_router(self, router: Router) -> None:

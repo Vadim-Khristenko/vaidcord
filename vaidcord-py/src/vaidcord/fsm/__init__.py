@@ -1,4 +1,4 @@
-from .context import FSMContext, FSMManager, FSMMiddleware
+from .context import FSMContext, FSMManager, FSMMiddleware, FSMNextHandler
 from .storage import (
     BaseFSMStorage,
     FSMScope,
@@ -24,4 +24,5 @@ __all__ = [
     "FSMContext",
     "FSMManager",
     "FSMMiddleware",
+    "FSMNextHandler",
 ]
