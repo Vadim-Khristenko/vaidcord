@@ -1,0 +1,405 @@
+"""
+HTTP Client for VaidCord.
+
+Provides a high-performance HTTP client with support for:
+- Proxy configuration
+- Custom API endpoints
+- Rate limiting
+- Error handling with detailed error messages
+- Request retries
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Any
+
+import aiohttp
+from aiohttp import ClientSession, TCPConnector
+
+logger = logging.getLogger(__name__)
+
+
+class DiscordErrorCode(Enum):
+    """Common Discord error codes."""
+
+    UNKNOWN_ACCOUNT = 10001
+    UNKNOWN_APPLICATION = 10002
+    UNKNOWN_CHANNEL = 10003
+    UNKNOWN_GUILD = 10004
+    UNKNOWN_INTEGRATION = 10005
+    UNKNOWN_INVITE = 10006
+    UNKNOWN_MEMBER = 10007
+    UNKNOWN_MESSAGE = 10008
+    UNKNOWN_OVERWRITE = 10009
+    UNKNOWN_PROVIDER = 10010
+    UNKNOWN_ROLE_1 = 10011  # First UNKNOWN_ROLE
+    UNKNOWN_TOKEN = 10012
+    UNKNOWN_USER = 10013
+    UNKNOWN_EMOJI = 10014
+    UNKNOWN_WEBHOOK = 10015
+    UNKNOWN_BOT = 10016
+    BOTS_NOT_ALLOWED = 20001
+    BOT_ONLY_ENDPOINT = 20002
+    MAX_CHANNELS_EXCEEDED = 30003
+    UNAUTHORIZED = 40001
+    USER_BANNED = 40004
+    CONNECTION_REVOKED = 40005
+    MISSING_ACCESS = 50001
+    INVALID_ACCOUNT_TYPE = 50002
+    CANNOT_EXECUTE_ON_DM = 50003
+    EMBED_DISABLED = 50004
+    CANNOT_EDIT_MESSAGE_BY_OTHER = 50005
+    CANNOT_SEND_EMPTY_MESSAGE = 50006
+    CANNOT_MESSAGE_USER = 50007
+    CANNOT_SEND_MESSAGES_IN_VOICE_CHANNEL = 50008
+    CHANNEL_VERIFICATION_LEVEL_TOO_HIGH = 50009
+    OAUTH2_APPLICATION_HAS_NO_BOT = 50010
+    OAUTH2_APPLICATION_LIMIT_REACHED = 50011
+    INVALID_OAUTH_STATE = 50012
+    MISSING_PERMISSIONS = 50013
+    INVALID_AUTHENTICATION_TOKEN = 50014
+    NOTE_TOO_LONG = 50015
+    BULK_DELETE_AMOUNT_OUT_OF_RANGE = 50016
+    CANNOT_PIN_MESSAGE_IN_OTHER_CHANNEL = 50019
+    INVITE_CODE_INVALID_OR_TAKEN = 50020
+    CANNOT_EXECUTE_ON_SYSTEM_MESSAGE = 50021
+    CANNOT_EXECUTE_ON_CHANNEL_TYPE = 50024
+    INVALID_OAUTH2_ACCESS_TOKEN = 50025
+    MISSING_REQUIRED_OAUTH2_SCOPE = 50026
+    INVALID_WEBHOOK_TOKEN = 50027
+    UNKNOWN_ROLE_2 = 50028  # Second UNKNOWN_ROLE (different context)
+    INVALID_FORM_BODY = 50035
+    APPLICATION_COMMAND_TOO_LARGE = 50038
+
+
+@dataclass
+class DiscordError:
+    """Represents a Discord API error."""
+
+    code: int
+    message: str
+    errors: dict[str, Any] | None = None
+
+    @classmethod
+    def from_response(cls, status: int, data: dict[str, Any]) -> DiscordError:
+        """Create a DiscordError from an API response."""
+        return cls(
+            code=data.get("code", status),
+            message=data.get("message", "Unknown error"),
+            errors=data.get("errors"),
+        )
+
+    def __str__(self) -> str:
+        if self.errors:
+            return f"{self.code}: {self.message} - Errors: {json.dumps(self.errors)}"
+        return f"{self.code}: {self.message}"
+
+
+@dataclass
+class RateLimitInfo:
+    """Information about rate limiting."""
+
+    limit: int
+    remaining: int
+    reset_after: float
+    reset: datetime
+    bucket: str | None = None
+    global_limit: bool = False
+
+
+@dataclass
+class HTTPConfig:
+    """Configuration for the HTTP client."""
+
+    token: str
+    api_version: str = "10"
+    base_url: str = "https://discord.com/api"
+    proxy: str | None = None
+    proxy_auth: aiohttp.BasicAuth | None = None
+    timeout: float = 30.0
+    max_retries: int = 3
+    retry_delay: float = 1.0
+    connector_limit: int = 100
+    user_agent: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.user_agent is None:
+            self.user_agent = "DiscordBot (https://github.com/vaidcord/vaidcord, 0.1.0)"
+
+
+@dataclass
+class HTTPResponseData:
+    """In-memory HTTP response payload captured before context exit."""
+
+    status: int
+    headers: dict[str, str]
+    body: bytes
+
+
+class HTTPClient:
+    """
+    High-performance HTTP client for Discord API.
+
+    Features:
+    - Automatic rate limit handling
+    - Retry logic with exponential backoff
+    - Proxy support
+    - Custom API endpoints
+    - Detailed error handling
+    """
+
+    def __init__(self, config: HTTPConfig) -> None:
+        self.config = config
+        self._session: ClientSession | None = None
+        self._rate_limits: dict[str, RateLimitInfo] = {}
+        self._global_rate_limit: datetime | None = None
+        self._lock = asyncio.Lock()
+
+    @property
+    def headers(self) -> dict[str, str]:
+        """Get default headers for requests."""
+        return {
+            "Authorization": f"Bot {self.config.token}",
+            "User-Agent": self.config.user_agent,
+            "Content-Type": "application/json",
+        }
+
+    async def _create_session(self) -> ClientSession:
+        """Create or get existing aiohttp session."""
+        if self._session is None or self._session.closed:
+            connector = TCPConnector(limit=self.config.connector_limit)
+            self._session = ClientSession(
+                connector=connector,
+                headers=self.headers,
+                timeout=aiohttp.ClientTimeout(total=self.config.timeout),
+            )
+        return self._session
+
+    async def close(self) -> None:
+        """Close the HTTP session."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
+
+    async def _check_rate_limit(
+        self, route: str, response: aiohttp.ClientResponse
+    ) -> RateLimitInfo | None:
+        """Check and handle rate limit headers."""
+        headers = response.headers
+
+        limit = int(headers.get("X-RateLimit-Limit", 0))
+        remaining = int(headers.get("X-RateLimit-Remaining", 0))
+        reset_after = float(headers.get("X-RateLimit-Reset-After", 0))
+        reset_ts = float(headers.get("X-RateLimit-Reset", 0))
+        bucket = headers.get("X-RateLimit-Bucket")
+
+        reset = datetime.fromtimestamp(reset_ts) if reset_ts else datetime.now()
+
+        info = RateLimitInfo(
+            limit=limit,
+            remaining=remaining,
+            reset_after=reset_after,
+            reset=reset,
+            bucket=bucket,
+        )
+
+        # Check for global rate limit
+        if headers.get("X-RateLimit-Global") == "true":
+            self._global_rate_limit = reset
+            logger.warning(f"Global rate limit hit. Reset at {reset}")
+
+        # Store rate limit info
+        self._rate_limits[route] = info
+
+        if remaining == 0:
+            wait_time = reset_after
+            logger.debug(f"Rate limit hit for {route}. Waiting {wait_time}s")
+            await asyncio.sleep(wait_time)
+
+        return info
+
+    async def _request_with_retry(
+        self,
+        method: str,
+        endpoint: str,
+        **kwargs: Any,
+    ) -> HTTPResponseData:
+        """Make a request with automatic retries."""
+        last_exception: Exception | None = None
+
+        for attempt in range(self.config.max_retries):
+            try:
+                session = await self._create_session()
+                url = f"{self.config.base_url}/v{self.config.api_version}{endpoint}"
+
+                # Handle proxy
+                proxy = self.config.proxy
+                proxy_auth = self.config.proxy_auth
+
+                async with session.request(
+                    method,
+                    url,
+                    proxy=proxy,
+                    proxy_auth=proxy_auth,
+                    **kwargs,
+                ) as response:
+                    # Check rate limits
+                    await self._check_rate_limit(endpoint, response)
+
+                    # Handle server errors with retry
+                    if response.status >= 500:
+                        if attempt < self.config.max_retries - 1:
+                            delay = self.config.retry_delay * (2**attempt)
+                            logger.warning(
+                                f"Server error {response.status}, retrying in {delay}s"
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+
+                    body = await response.read()
+                    return HTTPResponseData(
+                        status=response.status,
+                        headers=dict(response.headers),
+                        body=body,
+                    )
+
+            except (TimeoutError, aiohttp.ClientError) as e:
+                last_exception = e
+                if attempt < self.config.max_retries - 1:
+                    delay = self.config.retry_delay * (2**attempt)
+                    logger.warning(f"Request failed: {e}, retrying in {delay}s")
+                    await asyncio.sleep(delay)
+                else:
+                    raise
+
+        if last_exception:
+            raise last_exception
+        raise RuntimeError("Unexpected error in request loop")
+
+    async def request(
+        self,
+        method: str,
+        endpoint: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """
+        Make an API request to Discord.
+
+        Args:
+            method: HTTP method (GET, POST, PUT, DELETE, PATCH)
+            endpoint: API endpoint (e.g., "/channels/123/messages")
+            **kwargs: Additional arguments for the request
+
+        Returns:
+            JSON response from the API
+
+        Raises:
+            DiscordError: If the API returns an error
+        """
+        # Check global rate limit
+        if self._global_rate_limit and datetime.now() < self._global_rate_limit:
+            wait_time = (self._global_rate_limit - datetime.now()).total_seconds()
+            logger.warning(f"Waiting for global rate limit: {wait_time}s")
+            await asyncio.sleep(wait_time)
+
+        # Prepare request data
+        if "json" in kwargs and kwargs["json"] is not None:
+            kwargs["data"] = json.dumps(kwargs["json"])
+            del kwargs["json"]
+
+        response = await self._request_with_retry(method, endpoint, **kwargs)
+
+        # Handle error responses
+        if response.status >= 400:
+            try:
+                error_data = json.loads(response.body.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                error_data = {
+                    "code": response.status,
+                    "message": response.body.decode("utf-8", errors="replace"),
+                }
+
+            discord_error = DiscordError.from_response(response.status, error_data)
+            logger.error(f"Discord API error: {discord_error}")
+            raise discord_error
+
+        # Parse successful response
+        if response.status == 204:
+            return {}
+
+        if not response.body:
+            return {}
+        return json.loads(response.body.decode("utf-8"))
+
+    async def get(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        """Make a GET request."""
+        return await self.request("GET", endpoint, **kwargs)
+
+    async def post(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        """Make a POST request."""
+        return await self.request("POST", endpoint, **kwargs)
+
+    async def put(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        """Make a PUT request."""
+        return await self.request("PUT", endpoint, **kwargs)
+
+    async def patch(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        """Make a PATCH request."""
+        return await self.request("PATCH", endpoint, **kwargs)
+
+    async def delete(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        """Make a DELETE request."""
+        return await self.request("DELETE", endpoint, **kwargs)
+
+    async def upload_file(
+        self,
+        endpoint: str,
+        file_data: bytes,
+        filename: str,
+        content_type: str = "application/octet-stream",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """
+        Upload a file to Discord.
+
+        Args:
+            endpoint: API endpoint
+            file_data: File content as bytes
+            filename: Name of the file
+            content_type: MIME type of the file
+            **kwargs: Additional form fields
+
+        Returns:
+            JSON response with file information
+        """
+        form_data = aiohttp.FormData()
+        form_data.add_field(
+            "file",
+            file_data,
+            filename=filename,
+            content_type=content_type,
+        )
+
+        # Add payload_json if provided
+        if "payload_json" in kwargs:
+            form_data.add_field(
+                "payload_json",
+                json.dumps(kwargs["payload_json"]),
+                content_type="application/json",
+            )
+            del kwargs["payload_json"]
+
+        # Add additional fields
+        for key, value in kwargs.items():
+            form_data.add_field(key, str(value))
+
+        return await self.request("POST", endpoint, data=form_data)
+
+    def __repr__(self) -> str:
+        return f"<HTTPClient base_url={self.config.base_url}>"
