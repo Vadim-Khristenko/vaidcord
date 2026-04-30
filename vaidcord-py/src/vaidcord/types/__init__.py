@@ -73,6 +73,9 @@ class User:
     avatar: str | None = None
     banner: str | None = None
     accent_color: int | None = None
+    avatar_decoration_data: dict[str, Any] | None = None
+    collectibles: dict[str, Any] | None = None
+    primary_guild: dict[str, Any] | None = None
 
     @property
     def mention(self) -> str:

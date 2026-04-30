@@ -10,6 +10,7 @@ This directory collects small, focused examples instead of one large kitchen-sin
 - [mock_testing.py](mock_testing.py) - deterministic testing with the mock layer.
 - [oauth2_examples.py](oauth2_examples.py) - the minimal OAuth2 authorization URL helper.
 - [oauth2_workflow.py](oauth2_workflow.py) - a richer OAuth2 install and token helper example.
+- [send_dm_to_user.py](send_dm_to_user.py) - open a user DM channel and send a direct message by user ID.
 
 ## Run them
 
@@ -20,6 +21,7 @@ uv run python examples/fsm_conversation.py
 uv run python examples/mock_testing.py
 uv run python examples/oauth2_examples.py
 uv run python examples/oauth2_workflow.py
+uv run python examples/send_dm_to_user.py 123456789012345678 "Hello from VaidCord"
 ```
 
 The bot examples expect a `DISCORD_BOT_TOKEN` environment variable. The OAuth2 examples use placeholder values and are meant as templates.

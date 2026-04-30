@@ -22,6 +22,7 @@ class MockDiscordServer:
 
     def __post_init__(self) -> None:
         self._app.router.add_get("/api/v10/gateway/bot", self._gateway_bot)
+        self._app.router.add_post("/api/v10/users/@me/channels", self._create_dm)
         self._app.router.add_post("/api/v10/channels/{channel_id}/messages", self._send_message)
 
     async def _gateway_bot(self, request: web.Request) -> web.Response:
@@ -31,7 +32,23 @@ class MockDiscordServer:
     async def _send_message(self, request: web.Request) -> web.Response:
         payload = await request.json()
         self.requests.append({"method": "POST", "path": str(request.rel_url), "json": payload})
-        return web.json_response({"id": "mock-msg", **payload})
+        channel_id = request.match_info["channel_id"]
+        return web.json_response(
+            {
+                "id": "10001",
+                "channel_id": channel_id,
+                "content": payload.get("content", ""),
+                "tts": payload.get("tts", False),
+                "timestamp": "2026-04-30T00:00:00Z",
+                "author": {"id": "1", "username": "MockBot", "discriminator": "0", "bot": True},
+            }
+        )
+
+    async def _create_dm(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        self.requests.append({"method": "POST", "path": str(request.rel_url), "json": payload})
+        recipient_id = payload.get("recipient_id", "0")
+        return web.json_response({"id": str(int(recipient_id) + 1000), "type": 1})
 
     async def start(self) -> None:
         self._runner = web.AppRunner(self._app)
