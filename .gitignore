@@ -7,6 +7,7 @@ __pycache__/
 .python-version
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 .coverage
 coverage/
 htmlcov/
@@ -25,6 +26,7 @@ venv/
 env/
 ENV/
 .venv/
+test-run/
 
 # IDE and editor files
 .vscode/
