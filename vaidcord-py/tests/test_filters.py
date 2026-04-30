@@ -16,6 +16,7 @@ from vaidcord.filters import (
     RegexFilter,
     UserFilter,
     as_filter,
+    run_filter_with_data,
 )
 from vaidcord.router import Router
 from vaidcord.types import Channel, ChannelType, Event, EventType, Message, User
@@ -58,7 +59,7 @@ def _event_with_channel_type(text: str, channel_type: ChannelType, guild_id: str
 async def test_magic_filters_composition() -> None:
     event = _event_with_text("!admin ping")
     expr = F.message.content.startswith("!admin") & F.user.id.in_({10, 11})
-    assert await expr(event) is True
+    assert bool(await expr(event)) is True
 
     expr_not = ~F.message.content.contains("ban")
     assert await expr_not(event) is True
@@ -136,6 +137,50 @@ async def test_filter_dict_data_propagation_to_event_context() -> None:
 
     await router.propagate_event(_event_with_text("hello"))
     assert captured == {"role": "admin", "tenant": "main"}
+
+
+@pytest.mark.asyncio
+async def test_filter_expr_and_merges_dict_with_bool() -> None:
+    event = _event_with_text("hello")
+    left = as_filter(lambda _e: {"role": "admin"})
+    right = as_filter(lambda _e: True)
+
+    passed, data = await run_filter_with_data(left & right, event)
+    assert passed is True
+    assert data == {"role": "admin"}
+
+
+@pytest.mark.asyncio
+async def test_filter_expr_and_merges_dict_with_dict() -> None:
+    event = _event_with_text("hello")
+    left = as_filter(lambda _e: {"role": "admin"})
+    right = as_filter(lambda _e: {"tenant": "main"})
+
+    passed, data = await run_filter_with_data(left & right, event)
+    assert passed is True
+    assert data == {"role": "admin", "tenant": "main"}
+
+
+@pytest.mark.asyncio
+async def test_filter_expr_or_uses_first_successful_branch_data() -> None:
+    event = _event_with_text("hello")
+    first = as_filter(lambda _e: {"source": "first"})
+    second = as_filter(lambda _e: {"source": "second"})
+
+    passed, data = await run_filter_with_data(first | second, event)
+    assert passed is True
+    assert data == {"source": "first"}
+
+
+@pytest.mark.asyncio
+async def test_filter_expr_or_uses_second_branch_data_when_first_fails() -> None:
+    event = _event_with_text("hello")
+    first = as_filter(lambda _e: False)
+    second = as_filter(lambda _e: {"source": "second"})
+
+    passed, data = await run_filter_with_data(first | second, event)
+    assert passed is True
+    assert data == {"source": "second"}
 
 
 @pytest.mark.asyncio
