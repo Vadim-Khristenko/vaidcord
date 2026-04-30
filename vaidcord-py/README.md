@@ -46,6 +46,19 @@ uv add "vaidcord[postgres]"
 - Use `@router.on_message_state(...)` when a flow depends on FSM state.
 - Use `MockBot` or `MockDiscordServer` for deterministic tests.
 
+## Filter composition semantics
+
+- Filter may return `bool` or `dict`.
+- `dict` means: filter passed and payload is injected into `event.context["filter_data"]` and handler kwargs (by parameter name).
+- `A & B`: both filters must pass; dict payloads from both sides are merged left-to-right.
+- `A | B`: first passing filter wins; payload from that branch is used.
+
+```python
+@router.on_message((F.message.content.startswith("!admin")) & my_role_filter)
+async def admin_handler(event: Event, role: str | None = None):
+    ...
+```
+
 ## Runtime modes
 
 ```python
