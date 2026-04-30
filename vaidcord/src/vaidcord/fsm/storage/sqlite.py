@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from typing import Any
 
 from .base import FSMScope, StateValue, StorageKey
 
+logger = logging.getLogger(__name__)
 
 class SQLiteFSMStorage:
     """SQLite-backed FSM storage with stdlib sqlite3 (no extra deps)."""
@@ -86,6 +88,7 @@ class SQLiteFSMStorage:
     async def clear(self, key: StorageKey) -> None:
         self._conn.execute("DELETE FROM fsm_state WHERE key=?", (self._key_text(key),))
         self._conn.commit()
+        logger.debug("FSM sqlite key cleared")
 
     async def set_many_states(self, assignments: dict[StorageKey, StateValue | None]) -> None:
         for key, state in assignments.items():
@@ -135,3 +138,18 @@ class SQLiteFSMStorage:
         if clear_source:
             await self.clear(from_key)
         return result
+
+    async def export_snapshot(self) -> dict[str, Any]:
+        rows = self._conn.execute("SELECT key, state, data FROM fsm_state").fetchall()
+        logger.info("FSM sqlite snapshot exported: %s rows", len(rows))
+        return {"rows": [{"key": r[0], "state": r[1], "data": r[2]} for r in rows]}
+
+    async def import_snapshot(self, snapshot: dict[str, Any]) -> None:
+        rows = snapshot.get("rows", [])
+        self._conn.execute("DELETE FROM fsm_state")
+        self._conn.executemany(
+            "INSERT INTO fsm_state(key, state, data) VALUES(?, ?, ?)",
+            [(row["key"], row["state"], row["data"]) for row in rows],
+        )
+        self._conn.commit()
+        logger.warning("FSM sqlite snapshot imported: %s rows", len(rows))
