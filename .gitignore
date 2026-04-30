@@ -1,16 +1,9 @@
-```
 # Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
-env/
-venv/
-.venv/
-.ENV
-.ENV.*
-.venv/
 .python-version
 .pytest_cache/
 .mypy_cache/
@@ -31,6 +24,7 @@ build/
 venv/
 env/
 ENV/
+.venv/
 
 # IDE and editor files
 .vscode/
@@ -46,8 +40,9 @@ ENV/
 .env
 .env.local
 *.env.*
+!.env.example
+!vaidcord/.env.example
 
 # OS generated files
 .DS_Store
 Thumbs.db
-```
