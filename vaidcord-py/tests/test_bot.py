@@ -5,6 +5,7 @@ from datetime import datetime
 import pytest
 
 from vaidcord.bot import Bot, BotState, GatewayIntent
+from vaidcord.errors import DiscordAPIError, ForbiddenError
 from vaidcord.types import Channel, ChannelType, Message, User
 
 
@@ -198,7 +199,7 @@ async def test_connect_gateway_uses_gateway_bot(monkeypatch: pytest.MonkeyPatch)
         return {"url": "wss://gateway.discord.gg"}
 
     monkeypatch.setattr(bot, "_create_session", fake_create_session)
-    monkeypatch.setattr(bot, "request", fake_request)
+    monkeypatch.setattr(bot.api_client, "request", fake_request)
 
     await bot._connect_gateway()
     assert calls == [("GET", "/gateway/bot")]
@@ -262,3 +263,86 @@ async def test_message_answer_calls_send_message(
     response = await msg.answer("plain", embeds=[{"title": "x"}])
     assert calls == [(777, "plain")]
     assert response["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_send_dm_success_flow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """send_dm should open DM channel first and then send message."""
+    bot = Bot(token="test-token")
+    calls: list[tuple[str, str, dict]] = []
+
+    async def fake_request(method: str, endpoint: str, **kwargs):
+        calls.append((method, endpoint, kwargs))
+        return {"id": "999", "type": 1}
+
+    async def fake_send_message(channel_id: int, content: str | None = None, **kwargs):
+        assert channel_id == 999
+        assert content == "hello dm"
+        assert kwargs["embeds"] == [{"title": "DM"}]
+        return {
+            "id": "12345",
+            "channel_id": str(channel_id),
+            "content": content,
+            "timestamp": "2026-04-30T00:00:00Z",
+            "author": {"id": "42", "username": "bot", "discriminator": "0", "bot": True},
+        }
+
+    monkeypatch.setattr(bot, "request", fake_request)
+    monkeypatch.setattr(bot, "send_message", fake_send_message)
+
+    message = await bot.send_dm(user_id=777, content="hello dm", embeds=[{"title": "DM"}])
+    assert message.channel.id == 999
+    assert message.content == "hello dm"
+    assert calls == [
+        ("POST", "/users/@me/channels", {"json": {"recipient_id": "777"}}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_dm_open_channel_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """send_dm should map 403 opening DM channel to ForbiddenError."""
+    bot = Bot(token="test-token")
+
+    async def fake_request(method: str, endpoint: str, **kwargs):
+        raise DiscordAPIError("Forbidden", status=403, code=50007)
+
+    monkeypatch.setattr(bot, "request", fake_request)
+
+    with pytest.raises(ForbiddenError):
+        await bot.send_dm(user_id=111, content="hi")
+
+
+@pytest.mark.asyncio
+async def test_send_message_to_user_alias_forwards_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """send_message_to_user should proxy to send_dm and preserve kwargs."""
+    bot = Bot(token="test-token")
+    calls: list[tuple[int, str, dict]] = []
+
+    async def fake_send_dm(user_id: int, content: str, **kwargs):
+        calls.append((user_id, content, kwargs))
+        return Message(
+            id=1,
+            channel=Channel(id=2, type=ChannelType.DM),
+            author=User(id=3, username="bot", discriminator="0", bot=True),
+            content=content,
+            timestamp=datetime.now(),
+            bot=bot,
+        )
+
+    monkeypatch.setattr(bot, "send_dm", fake_send_dm)
+
+    await bot.send_message_to_user(
+        user_id=1234,
+        content="payload",
+        embeds=[{"title": "E"}],
+        components=[{"type": 1, "components": []}],
+    )
+    assert calls == [
+        (
+            1234,
+            "payload",
+            {"embeds": [{"title": "E"}], "components": [{"type": 1, "components": []}]},
+        )
+    ]

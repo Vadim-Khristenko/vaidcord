@@ -50,5 +50,23 @@ class APIClient:
     async def fetch_user(self, user_id: int) -> dict[str, Any]:
         return await self.get(f"/users/{user_id}")
 
+    async def get_current_user(self) -> dict[str, Any]:
+        return await self.get("/users/@me")
+
+    async def modify_current_user(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.patch("/users/@me", json=payload)
+
+    async def get_current_user_guilds(self, **params: Any) -> list[dict[str, Any]]:
+        return await self.get("/users/@me/guilds", params=params)  # type: ignore[return-value]
+
+    async def get_current_user_guild_member(self, guild_id: int) -> dict[str, Any]:
+        return await self.get(f"/users/@me/guilds/{guild_id}/member")
+
+    async def leave_guild(self, guild_id: int) -> dict[str, Any]:
+        return await self.delete(f"/users/@me/guilds/{guild_id}")
+
+    async def create_dm(self, recipient_id: int) -> dict[str, Any]:
+        return await self.post("/users/@me/channels", json={"recipient_id": str(recipient_id)})
+
     async def close(self) -> None:
         await self._http.close()

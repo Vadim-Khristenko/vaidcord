@@ -39,7 +39,8 @@ class GatewayRuntime:
         self._bot._state = BotState.CONNECTING
         gateway_info = await self._bot.api_client.request("GET", "/gateway/bot")
         ws_url = gateway_info.get("url", self._bot.config.gateway_url)
-        self._ws = await self._bot._create_session().ws_connect(
+        session = await self._bot._create_session()
+        self._ws = await session.ws_connect(
             f"{ws_url}?v={self._bot.config.api_version}&encoding=json"
         )
 
