@@ -12,13 +12,13 @@ class AsyncMongoCollection(Protocol):
 
 
 class MongoFSMStorage:
-    """Async MongoDB FSM storage (requires optional `motor`)."""
+    """Async MongoDB FSM storage (pymongo asynchronous collection)."""
 
     def __init__(self, collection: AsyncMongoCollection | None = None) -> None:
         if collection is None:
             raise ImportError(
-                "MongoFSMStorage requires an async Motor collection. "
-                "Install with: pip install motor"
+                "MongoFSMStorage requires pymongo asynchronous AsyncCollection. "
+                "Install with: pip install pymongo"
             )
         self._collection = collection
 

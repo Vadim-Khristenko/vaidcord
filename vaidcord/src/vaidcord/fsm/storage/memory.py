@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any
 
 from .base import FSMScope, StateValue, StorageKey
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryFSMStorage:
@@ -21,8 +25,10 @@ class MemoryFSMStorage:
         normalized = self._normalize_state(state)
         if normalized is None:
             self._states.pop(key, None)
+            logger.debug("FSM memory state cleared for key=%s", key)
             return
         self._states[key] = normalized
+        logger.debug("FSM memory state set for key=%s", key)
 
     async def get_data(self, key: StorageKey) -> dict[str, Any]:
         return dict(self._data.get(key, {}))
@@ -87,3 +93,46 @@ class MemoryFSMStorage:
         if clear_source:
             await self.clear(from_key)
         return result
+
+    async def export_snapshot(self) -> dict[str, Any]:
+        def encode_key(key: StorageKey) -> str:
+            return json.dumps(
+                {
+                    "scope": str(key.scope),
+                    "guild_id": key.guild_id,
+                    "channel_id": key.channel_id,
+                    "topic_id": key.topic_id,
+                    "user_id": key.user_id,
+                    "custom_id": key.custom_id,
+                },
+                sort_keys=True,
+            )
+
+        snapshot = {
+            "states": {encode_key(k): v for k, v in self._states.items()},
+            "data": {encode_key(k): v for k, v in self._data.items()},
+        }
+        logger.info("FSM memory snapshot exported: %s keys", len(self._states))
+        return snapshot
+
+    async def import_snapshot(self, snapshot: dict[str, Any]) -> None:
+        def decode_key(raw: str) -> StorageKey:
+            payload = json.loads(raw)
+            return StorageKey(
+                scope=FSMScope(payload["scope"]),
+                guild_id=payload.get("guild_id"),
+                channel_id=payload.get("channel_id"),
+                topic_id=payload.get("topic_id"),
+                user_id=payload.get("user_id"),
+                custom_id=payload.get("custom_id"),
+            )
+
+        self._states = {
+            decode_key(raw_key): value
+            for raw_key, value in snapshot.get("states", {}).items()
+        }
+        self._data = {
+            decode_key(raw_key): dict(value)
+            for raw_key, value in snapshot.get("data", {}).items()
+        }
+        logger.warning("FSM memory snapshot imported: %s keys", len(self._states))

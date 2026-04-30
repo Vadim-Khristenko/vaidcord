@@ -65,6 +65,20 @@ async def test_transition_data_between_states() -> None:
     assert await storage.get_data(source) == {}
 
 
+@pytest.mark.asyncio
+async def test_snapshot_export_import() -> None:
+    storage = MemoryFSMStorage()
+    key = StorageKey.user(100)
+    await storage.set_state(key, "s1")
+    await storage.set_data(key, {"x": 1})
+    snapshot = await storage.export_snapshot()
+
+    restored = MemoryFSMStorage()
+    await restored.import_snapshot(snapshot)
+    assert await restored.get_state(key) == "s1"
+    assert await restored.get_data(key) == {"x": 1}
+
+
 def test_optional_storages_raise_informative_errors() -> None:
     with pytest.raises(ImportError):
         RedisFSMStorage()

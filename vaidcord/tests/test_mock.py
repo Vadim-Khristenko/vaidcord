@@ -195,3 +195,28 @@ def test_formatter_combine_styles():
 
     result = Formatter.combine_styles("text", TextStyle.BOLD, TextStyle.UNDERLINE)
     assert result == "__**text**__"
+
+
+@pytest.mark.asyncio
+async def test_mock_discord_server_smoke():
+    from vaidcord.mock import MockDiscordServer
+    import aiohttp
+
+    server = MockDiscordServer(port=18081)
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{server.base_url}/v10/gateway/bot") as resp:
+                assert resp.status == 200
+                data = await resp.json()
+                assert "url" in data
+
+            async with session.post(
+                f"{server.base_url}/v10/channels/123/messages",
+                json={"content": "hello"},
+            ) as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+                assert payload["content"] == "hello"
+    finally:
+        await server.stop()

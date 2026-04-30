@@ -29,6 +29,8 @@ uv add "vaidcord[all-backends]"
 pip install vaidcord
 ```
 
+`vaidcord[mongo]` uses `pymongo` asynchronous API (not Motor).
+
 ## Quick Start
 
 ```python
@@ -298,6 +300,10 @@ uv run pytest
 # Run linter
 uv run ruff check src/vaidcord
 ```
+
+## Example Bots
+
+- `examples/hello_echo_bot.py` — minimal `/start` hello-world + non-command echo flow.
 
 ## License
 
