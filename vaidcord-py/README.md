@@ -29,7 +29,9 @@ uv add "vaidcord[postgres]"
 
 ## Mental model
 
-- `Bot` owns transport and Discord API calls.
+- `Bot` is a facade/orchestrator that wires runtime + REST client + routers.
+- `GatewayRuntime` owns websocket lifecycle (`connect/identify/heartbeat/dispatch loop`).
+- `APIClient` owns Discord REST calls and delegates HTTP details to `HTTPClient`.
 - `Dispatcher` is the root router and runtime coordinator.
 - `Router` groups features into reusable modules.
 - `Middleware` wraps event handling.
@@ -50,6 +52,8 @@ uv add "vaidcord[postgres]"
 await dp.start_polling(bot)
 await dp.start_websocket(bot)
 await dp.start_webhook(bot, drop_pending_updates=True)
+await dp.start_polling_many([bot_a, bot_b])
+await dp.start_webhook_many([bot_a, bot_b], drop_pending_updates=True)
 ```
 
 `Dispatcher()` auto-registers FSM middleware. If you do not pass storage, it uses in-memory storage by default.

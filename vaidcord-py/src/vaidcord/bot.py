@@ -8,7 +8,6 @@ for creating Discord bots with VaidCord.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from dataclasses import dataclass
 from enum import Enum, IntFlag
@@ -17,6 +16,8 @@ from typing import Any
 import aiohttp
 
 from vaidcord.application import Application, ApplicationRoleConnectionMetadata
+from vaidcord.api_client import APIClient
+from vaidcord.gateway_runtime import GatewayRuntime
 from vaidcord.router import Router
 from vaidcord.types import (
     Channel,
@@ -126,13 +127,16 @@ class Bot(Router):
 
         self.config = config
         self._session: aiohttp.ClientSession | None = None
-        self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._running = False
         self._sequence: int | None = None
         self._session_id: str | None = None
-        self._heartbeat_interval: float | None = None
-        self._heartbeat_task: asyncio.Task | None = None
         self._state = BotState.IDLE
+        self.api_client = APIClient(
+            token=self.config.token,
+            base_url=self.config.base_url,
+            api_version=self.config.api_version,
+        )
+        self.runtime = GatewayRuntime(self)
 
         # Cache for guilds, users, channels
         self._guilds: dict[int, Guild] = {}
@@ -166,8 +170,7 @@ class Bot(Router):
     @property
     def latency(self) -> float:
         """Get the WebSocket latency in seconds."""
-        # Will be implemented with heartbeat ack tracking
-        return 0.0
+        return self.runtime.latency
 
     async def _create_session(self) -> aiohttp.ClientSession:
         """Create an aiohttp session for API requests."""
@@ -188,88 +191,21 @@ class Bot(Router):
         endpoint: str,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """
-        Make an API request to Discord.
+        """Make an API request to Discord."""
+        return await self.api_client.request(method, endpoint, **kwargs)
 
-        Args:
-            method: HTTP method (GET, POST, PUT, DELETE, etc.)
-            endpoint: API endpoint (e.g., "/channels/123/messages")
-            **kwargs: Additional arguments for the request
-
-        Returns:
-            JSON response from the API
-        """
-        session = await self._create_session()
-        url = f"{self.config.base_url}/v{self.config.api_version}{endpoint}"
-
-        async with session.request(method, url, **kwargs) as response:
-            if response.status >= 400:
-                error_text = await response.text()
-                raise RuntimeError(f"API error {response.status}: {error_text}")
-            return await response.json()
 
     async def _connect_gateway(self) -> None:
-        """Connect to the Discord gateway."""
-        self._state = BotState.CONNECTING
-        if self._session is None:
-            await self._create_session()
-
-        # Use authenticated endpoint so we can track shard recommendations.
-        gateway_info = await self.request("GET", "/gateway/bot")
-        ws_url = gateway_info.get("url", self.config.gateway_url)
-        recommended_shards = gateway_info.get("shards")
-        if isinstance(recommended_shards, int) and recommended_shards > 0:
-            if self.config.shard_count < recommended_shards:
-                logger.info(
-                    "Gateway recommends %s shard(s); current config uses %s",
-                    recommended_shards,
-                    self.config.shard_count,
-                )
-
-        # Connect to WebSocket
-        self._ws = await self._session.ws_connect(
-            f"{ws_url}?v={self.config.api_version}&encoding=json"
-        )
-        logger.info("Connected to Discord gateway")
+        await self.runtime.connect()
 
     async def _send_payload(self, payload: dict[str, Any]) -> None:
-        """Send a payload to the gateway."""
-        if self._ws and not self._ws.closed:
-            await self._ws.send_json(payload)
+        await self.runtime.send_payload(payload)
 
     async def _identify(self) -> None:
-        """Send the identify payload to authenticate."""
-        self._state = BotState.IDENTIFYING
-        payload = {
-            "op": 2,  # Identify
-            "d": {
-                "token": self.config.token,
-                "intents": int(self.config.intents),
-                "properties": {
-                    "os": "linux",
-                    "browser": "VaidCord",
-                    "device": "VaidCord",
-                },
-                "compress": False,
-                "large_threshold": 250,
-            },
-        }
-
-        if self.config.shard_count > 1:
-            payload["d"]["shard"] = [self.config.shard_id, self.config.shard_count]
-
-        if self.config.presence:
-            payload["d"]["presence"] = self.config.presence
-
-        await self._send_payload(payload)
-        logger.info("Sent identify payload")
+        await self.runtime.identify()
 
     async def _heartbeat(self) -> None:
-        """Send heartbeats to keep the connection alive."""
-        while self._running and self._heartbeat_interval is not None:
-            await asyncio.sleep(self._heartbeat_interval / 1000)
-            await self._send_payload({"op": 1, "d": self._sequence})
-            logger.debug("Sent heartbeat")
+        return None
 
     async def _handle_dispatch(self, data: dict[str, Any]) -> None:
         """Handle a dispatch event from the gateway."""
@@ -433,35 +369,7 @@ class Bot(Router):
         )
 
     async def _receive_messages(self) -> None:
-        """Receive and process messages from the gateway."""
-        if not self._ws:
-            return
-
-        async for msg in self._ws:
-            if msg.type == aiohttp.WSMsgType.TEXT:
-                data = json.loads(msg.data)
-                op = data.get("op")
-
-                if op == 0:  # Dispatch
-                    await self._handle_dispatch(data)
-                elif op == 9:  # Invalid Session
-                    logger.warning("Invalid session, reidentifying...")
-                    self._state = BotState.RECONNECTING
-                    await asyncio.sleep(5)
-                    await self._identify()
-                elif op == 10:  # Hello
-                    self._heartbeat_interval = data["d"]["heartbeat_interval"]
-                    logger.info(f"Heartbeat interval: {self._heartbeat_interval}ms")
-                    await self._identify()
-                    if self._heartbeat_task:
-                        self._heartbeat_task.cancel()
-                    self._heartbeat_task = asyncio.create_task(self._heartbeat())
-                elif op == 11:  # Heartbeat ACK
-                    logger.debug("Received heartbeat ACK")
-
-            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                logger.warning(f"WebSocket closed/error: {msg.type}")
-                break
+        await self.runtime.run()
 
     async def start(self) -> None:
         """Start the bot client."""
@@ -499,14 +407,8 @@ class Bot(Router):
         self._state = BotState.STOPPING
         self._ready_event.clear()
 
-        if self._heartbeat_task:
-            self._heartbeat_task.cancel()
-            self._heartbeat_task = None
-
-        if self._ws and not self._ws.closed:
-            await self._ws.close()
-            self._ws = None
-
+        await self.runtime.stop()
+        await self.api_client.close()
         await self._close_session()
         self._state = BotState.STOPPED
         logger.info("Bot stopped")
@@ -556,11 +458,7 @@ class Bot(Router):
                 "send_message requires at least one of content/embeds/components/"
                 "sticker_ids/message_reference"
             )
-        return await self.request(
-            "POST",
-            f"/channels/{channel_id}/messages",
-            json=payload,
-        )
+        return await self.api_client.send_message(channel_id, payload)
 
     async def reply(
         self,
@@ -629,7 +527,7 @@ class Bot(Router):
 
     async def trigger_typing(self, channel_id: int) -> None:
         """Trigger a typing indicator in a channel."""
-        await self.request("POST", f"/channels/{channel_id}/typing")
+        await self.api_client.trigger_typing(channel_id)
 
     async def delete_webhook(self, *, drop_pending_updates: bool = False) -> dict[str, Any]:
         """Compatibility helper for aiogram-like startup flows."""
@@ -673,21 +571,21 @@ class Bot(Router):
 
     async def fetch_channel(self, channel_id: int) -> Channel:
         """Fetch and parse a channel from the API."""
-        data = await self.request("GET", f"/channels/{channel_id}")
+        data = await self.api_client.fetch_channel(channel_id)
         channel = self._parse_channel(data)
         self._channels[channel.id] = channel
         return channel
 
     async def fetch_guild(self, guild_id: int) -> Guild:
         """Fetch and parse a guild from the API."""
-        data = await self.request("GET", f"/guilds/{guild_id}")
+        data = await self.api_client.fetch_guild(guild_id)
         guild = self._parse_guild(data)
         self._guilds[guild.id] = guild
         return guild
 
     async def fetch_user(self, user_id: int) -> User:
         """Fetch and parse a user from the API."""
-        data = await self.request("GET", f"/users/{user_id}")
+        data = await self.api_client.fetch_user(user_id)
         user = self._parse_user(data)
         self._users[user.id] = user
         return user
