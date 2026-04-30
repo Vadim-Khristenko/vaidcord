@@ -29,7 +29,9 @@ uv add "vaidcord[postgres]"
 
 ## Mental model
 
-- `Bot` owns transport and Discord API calls.
+- `Bot` is a facade/orchestrator that wires runtime + REST client + routers.
+- `GatewayRuntime` owns websocket lifecycle (`connect/identify/heartbeat/dispatch loop`).
+- `APIClient` owns Discord REST calls and delegates HTTP details to `HTTPClient`.
 - `Dispatcher` is the root router and runtime coordinator.
 - `Router` groups features into reusable modules.
 - `Middleware` wraps event handling.

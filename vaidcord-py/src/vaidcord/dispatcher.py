@@ -1,10 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol
 
-from vaidcord.bot import Bot
 from vaidcord.fsm import FSMMiddleware, MemoryFSMStorage
 from vaidcord.router import Router
+
+
+class DispatcherBotProtocol(Protocol):
+    def include_router(self, router: Router) -> None: ...
+
+    async def start(self) -> None: ...
+
+    async def delete_webhook(self, *, drop_pending_updates: bool = False) -> dict[str, Any]: ...
 
 
 class Dispatcher(Router):
@@ -12,7 +19,7 @@ class Dispatcher(Router):
 
     def __init__(
         self,
-        bot: Bot | None = None,
+        bot: DispatcherBotProtocol | None = None,
         *,
         fsm: FSMMiddleware | None = None,
         storage: Any | None = None,
@@ -47,7 +54,7 @@ class Dispatcher(Router):
             raise ValueError("Dispatcher cannot include another Dispatcher")
         super().include_router(router)
 
-    async def start_polling(self, bot: Bot) -> None:
+    async def start_polling(self, bot: DispatcherBotProtocol) -> None:
         """
         Start bot and route events through dispatcher routers.
         """
@@ -60,11 +67,11 @@ class Dispatcher(Router):
         finally:
             await self.shutdown()
 
-    async def start_websocket(self, bot: Bot) -> None:
+    async def start_websocket(self, bot: DispatcherBotProtocol) -> None:
         """Alias for explicit websocket startup."""
         await self.start_polling(bot)
 
-    async def start_webhook(self, bot: Bot, *, drop_pending_updates: bool = False) -> None:
+    async def start_webhook(self, bot: DispatcherBotProtocol, *, drop_pending_updates: bool = False) -> None:
         """Webhook-style startup helper (webhook server integration is app-defined)."""
         await bot.delete_webhook(drop_pending_updates=drop_pending_updates)
         await self.start_polling(bot)
