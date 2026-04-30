@@ -48,6 +48,21 @@ async def test_memory_storage_policy_setters() -> None:
     assert await storage.get_state(StorageKey.channel(8)) == "channel"
     assert await storage.get_state(StorageKey.user(7)) == "user"
     assert await storage.get_state(StorageKey.guild(6)) == "guild"
+    many = await storage.get_many_states([StorageKey.user(7), StorageKey.guild(6)])
+    assert many[StorageKey.user(7)] == "user"
+    assert many[StorageKey.guild(6)] == "guild"
+
+
+@pytest.mark.asyncio
+async def test_transition_data_between_states() -> None:
+    storage = MemoryFSMStorage()
+    source = StorageKey.user(1)
+    target = StorageKey.channel(2)
+    await storage.set_data(source, {"a": 1})
+    await storage.set_data(target, {"b": 2})
+    result = await storage.transition_data(source, target, clear_source=True, merge=True)
+    assert result == {"b": 2, "a": 1}
+    assert await storage.get_data(source) == {}
 
 
 def test_optional_storages_raise_informative_errors() -> None:
