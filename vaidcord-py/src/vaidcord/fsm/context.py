@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from collections.abc import Awaitable, Callable
-from typing import Any, TypeAlias
+from typing import Any
 
+from vaidcord.typing import EventHandlerResult, NextHandler
 from vaidcord.types import Event
 
 from .storage.base import BaseFSMStorage, FSMScope, StateValue, StorageKey
@@ -57,9 +57,6 @@ class FSMManager:
         return FSMContext(self.storage, StorageKey.custom(custom_id))
 
 
-FSMNextHandler: TypeAlias = Callable[[Event], Awaitable[object | None]]
-
-
 @dataclass
 class FSMMiddleware:
     storage: BaseFSMStorage = field(default_factory=MemoryFSMStorage)
@@ -72,7 +69,7 @@ class FSMMiddleware:
         FSMScope.GUILD,
     )
 
-    async def __call__(self, event: Event, handler: FSMNextHandler) -> object | None:
+    async def __call__(self, event: Event, handler: NextHandler) -> EventHandlerResult:
         manager = FSMManager(self.storage)
         event.context["fsm_manager"] = manager
 

@@ -4,7 +4,8 @@ import asyncio
 from typing import Any, Protocol
 
 from vaidcord.fsm import BaseFSMStorage, FSMMiddleware, MemoryFSMStorage
-from vaidcord.router import EventHandlerResult, Router
+from vaidcord.router import Router
+from vaidcord.typing import EventHandlerResult
 from vaidcord.types import Event
 
 
