@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import datetime
 from typing import Any
+
+from vaidcord.errors import create_discord_error
 
 from .config import MockSettings
 from .types import MockHTTPResponse
@@ -60,6 +61,8 @@ class MockHTTPClient:
                 "code": response.error_code or response.status,
                 "message": response.error_message or "Mock error",
             }
-            raise Exception(f"Mock HTTP Error {response.status}: {json.dumps(error_data)}")
+            if response.status == 429 and "retry_after" not in error_data:
+                error_data["retry_after"] = response.headers.get("Retry-After")
+            raise create_discord_error(response.status, error_data)
 
         return response.data
