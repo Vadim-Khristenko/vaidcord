@@ -11,7 +11,8 @@ import os
 from collections.abc import Awaitable, Callable
 from time import perf_counter
 
-from vaidcord import Bot, Dispatcher, F, Router
+from vaidcord import Bot, Dispatcher, Router
+from vaidcord.filters import CommandFilter, F
 from vaidcord.types import Event
 
 NextHandler = Callable[[Event], Awaitable[object]]
@@ -46,7 +47,7 @@ def build_dispatcher() -> Dispatcher:
     async def on_shutdown() -> None:
         print("Feature router is shutting down")
 
-    @public_router.on_command_start()
+    @public_router.on_message(CommandFilter(("start",)))
     async def start(event: Event, bot: Bot, service_name: str) -> None:
         await bot.reply(
             event.message.channel_id,
@@ -54,7 +55,7 @@ def build_dispatcher() -> Dispatcher:
             f"Welcome to {service_name}. Try /help for more.",
         )
 
-    @public_router.on_command_help()
+    @public_router.on_message(CommandFilter(("help",)))
     async def help_command(event: Event, bot: Bot) -> None:
         await bot.send_message(
             event.message.channel_id,
@@ -70,7 +71,7 @@ def build_dispatcher() -> Dispatcher:
     async def dm_only(event: Event, bot: Bot) -> None:
         await bot.send_message(event.message.channel_id, "This handler only sees direct messages.")
 
-    @admin_router.on_command("stats")
+    @admin_router.on_message(CommandFilter(("stats",)))
     async def stats(event: Event, bot: Bot, admin_label: str, service_name: str) -> None:
         await bot.reply(
             event.message.channel_id,
