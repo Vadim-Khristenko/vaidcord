@@ -16,8 +16,7 @@ Features:
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
-__author__ = "VaidCord Team"
+from vaidcord.metadata import __author__, __version__
 
 # Lazy imports to avoid circular dependency issues
 __lazy_imports__ = {
@@ -48,6 +47,8 @@ __lazy_imports__ = {
     "RegexFilter": ".filters",
     "UserFilter": ".filters",
     "Event": ".types",
+    "EventType": ".types",
+    "WebhookEventType": ".types",
     "Message": ".types",
     "User": ".types",
     "Guild": ".types",
@@ -91,6 +92,11 @@ __lazy_imports__ = {
     "create_discord_error": ".errors",
     "create_gateway_error": ".errors",
     "create_voice_gateway_error": ".errors",
+    # Logging
+    "configure_logging": ".logging",
+    "LogConfig": ".logging",
+    "LogFileConfig": ".logging",
+    "get_logger": ".logging",
     # Permissions
     "Permissions": ".permissions",
     "PermissionOverwrite": ".permissions",
@@ -110,6 +116,8 @@ __lazy_imports__ = {
     "StateValue": ".fsm",
     "StorageKey": ".fsm",
     "BaseFSMStorage": ".fsm",
+    "State": ".fsm",
+    "StatesGroup": ".fsm",
 }
 
 
@@ -154,6 +162,8 @@ __all__ = [
     "GatewayIntent",
     # Types
     "Event",
+    "EventType",
+    "WebhookEventType",
     "Message",
     "User",
     "Guild",
@@ -200,6 +210,11 @@ __all__ = [
     "create_discord_error",
     "create_gateway_error",
     "create_voice_gateway_error",
+    # Logging
+    "configure_logging",
+    "LogConfig",
+    "LogFileConfig",
+    "get_logger",
     # Permissions
     "Permissions",
     "PermissionOverwrite",
@@ -219,6 +234,9 @@ __all__ = [
     "StateValue",
     "StorageKey",
     "BaseFSMStorage",
+    "State",
+    "StatesGroup",
     # Version
+    "__author__",
     "__version__",
 ]

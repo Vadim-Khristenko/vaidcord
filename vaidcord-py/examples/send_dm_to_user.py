@@ -26,8 +26,11 @@ async def main() -> None:
         raise RuntimeError("Set DISCORD_BOT_TOKEN environment variable before running this example")
 
     bot = Bot(token=token)
-    message = await bot.send_dm(user_id=user_id, content=content)
-    print(f"DM sent: message_id={message.id} channel_id={message.channel.id}")
+    try:
+        message = await bot.send_dm(user_id=user_id, content=content)
+        print(f"DM sent: message_id={message.id} channel_id={message.channel.id}")
+    finally:
+        await bot.api_client.close()
 
 
 if __name__ == "__main__":

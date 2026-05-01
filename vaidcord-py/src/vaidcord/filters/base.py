@@ -15,6 +15,15 @@ class BaseFilter:
     async def __call__(self, event: Event) -> bool | dict[str, Any]:
         raise NotImplementedError
 
+    def __and__(self, other: FilterLike) -> FilterExpr:
+        return as_filter(self).__and__(other)
+
+    def __or__(self, other: FilterLike) -> FilterExpr:
+        return as_filter(self).__or__(other)
+
+    def __invert__(self) -> FilterExpr:
+        return ~as_filter(self)
+
 
 class SupportsFilter(Protocol):
     def __call__(self, event: Event) -> FilterResult: ...

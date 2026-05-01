@@ -19,10 +19,12 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 import aiohttp
 from aiohttp import ClientSession, TCPConnector
+
+from vaidcord.metadata import __version__, build_user_agent
 
 logger = logging.getLogger(__name__)
 
@@ -81,12 +83,15 @@ class DiscordErrorCode(Enum):
 
 
 @dataclass
-class DiscordError:
+class DiscordError(Exception):
     """Represents a Discord API error."""
 
     code: int
     message: str
     errors: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        super().__init__(self.__str__())
 
     @classmethod
     def from_response(cls, status: int, data: dict[str, Any]) -> DiscordError:
@@ -132,7 +137,7 @@ class HTTPConfig:
 
     def __post_init__(self) -> None:
         if self.user_agent is None:
-            self.user_agent = "DiscordBot (https://github.com/vaidcord/vaidcord, 0.1.0)"
+            self.user_agent = build_user_agent()
 
 
 @dataclass
@@ -162,6 +167,11 @@ class HTTPClient:
         self._rate_limits: dict[str, RateLimitInfo] = {}
         self._global_rate_limit: datetime | None = None
         self._lock = asyncio.Lock()
+        self._bot_id: str | None = None
+
+    def set_bot_id(self, bot_id: str | int | None) -> None:
+        """Attach bot identity to subsequent HTTP logs."""
+        self._bot_id = None if bot_id is None else str(bot_id)
 
     @staticmethod
     def _sanitize_headers(headers: dict[str, Any] | None) -> dict[str, Any]:
@@ -217,14 +227,18 @@ class HTTPClient:
     def _log_http_event(self, event: str, request_id: str, **fields: Any) -> None:
         """Emit structured HTTP log events."""
         payload = {"event": event, "request_id": request_id, **fields}
+        if self._bot_id is not None:
+            payload["bot_id"] = self._bot_id
         logger.info(payload)
 
     @property
     def headers(self) -> dict[str, str]:
         """Get default headers for requests."""
+        user_agent = self.config.user_agent or build_user_agent()
         return {
             "Authorization": f"Bot {self.config.token}",
-            "User-Agent": self.config.user_agent,
+            "User-Agent": user_agent,
+            "X-VaidCord-Version": __version__,
             "Content-Type": "application/json",
         }
 
@@ -488,7 +502,7 @@ class HTTPClient:
 
         if not response.body:
             return {}
-        return json.loads(response.body.decode("utf-8"))
+        return cast(dict[str, Any], json.loads(response.body.decode("utf-8")))
 
     async def get(self, endpoint: str, **kwargs: Any) -> dict[str, Any]:
         """Make a GET request."""

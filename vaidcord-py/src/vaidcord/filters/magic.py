@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from vaidcord.types import ChannelType, Event
+
 from .base import BaseFilter, FilterExpr, FilterLike, as_filter
 
 
@@ -67,6 +68,9 @@ class MagicFilter:
     def __call__(self, event: Event) -> bool:
         return bool(self._extract(event))
 
+    def __matmul__(self, values: Iterable[Any]) -> FilterExpr:
+        return self.in_(values)
+
     def __eq__(self, value: Any) -> FilterExpr:  # type: ignore[override]
         return self._cmp(lambda current: current == value)
     def __ne__(self, value: Any) -> FilterExpr:  # type: ignore[override]
@@ -83,6 +87,30 @@ class MagicFilter:
     def in_(self, values: Iterable[Any]) -> FilterExpr: return self._cmp(lambda current: current in set(values))
     def not_in(self, values: Iterable[Any]) -> FilterExpr: return self._cmp(lambda current: current not in set(values))
     def contains(self, value: Any) -> FilterExpr: return self._cmp(lambda current: current is not None and value in current)
+
+    def startswith(self, prefix: str) -> FilterExpr:
+        async def _f(event: Event) -> bool | dict[str, Any]:
+            current = self._extract(event)
+            if self._selector == "any" and isinstance(current, list):
+                for item in current:
+                    if isinstance(item, str) and item.startswith(prefix):
+                        return {"startswith": prefix, "matched_text": item}
+                return False
+            if self._selector == "all" and isinstance(current, list):
+                if not current:
+                    return False
+                if all(isinstance(item, str) and item.startswith(prefix) for item in current):
+                    return {"startswith": prefix, "matched_text": current[-1]}
+                return False
+            if isinstance(current, str) and current.startswith(prefix):
+                return {"startswith": prefix, "matched_text": current}
+            return False
+
+        return FilterExpr(_f)
+
+    def endswith(self, suffix: str) -> FilterExpr:
+        return self._cmp(lambda current: isinstance(current, str) and current.endswith(suffix))
+
     def exists(self) -> FilterExpr: return self._cmp(lambda current: current is not None)
     def is_(self, value: Any) -> FilterExpr: return self._cmp(lambda current: current is value)
     def is_not(self, value: Any) -> FilterExpr: return self._cmp(lambda current: current is not value)
@@ -101,6 +129,9 @@ class MagicFilter:
             m = rgx.search(current)
             return {"regex_match": m, "regex_groups": m.groupdict()} if m else False
         return FilterExpr(_f)
+
+    def regexp(self, pattern: str, flags: int = 0) -> FilterExpr:
+        return self.regex(pattern, flags=flags)
 
     def bot_id_in(self, bot_ids: Iterable[int]) -> FilterExpr:
         return self._cmp(lambda current: getattr(current, "id", None) in set(bot_ids))
@@ -123,6 +154,9 @@ class MagicData(BaseFilter):
     async def __call__(self, event: Event) -> bool | dict[str, Any]:
         payload = {**event.data, **event.context}
         shadow = Event(type=event.type, data=payload, guild=event.guild, channel=event.channel, user=event.user, message=event.message, interaction=event.interaction, raw_data=event.raw_data, bot=event.bot, context=event.context)
+        for key, value in payload.items():
+            if not hasattr(shadow, key):
+                setattr(shadow, key, value)
         return await as_filter(self.expr)(shadow)
 
 

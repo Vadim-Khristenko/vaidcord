@@ -9,16 +9,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from dataclasses import dataclass
 from enum import Enum, IntFlag
-from typing import Any
+from typing import Any, cast
 
 import aiohttp
 
-from vaidcord.application import Application, ApplicationRoleConnectionMetadata
 from vaidcord.api_client import APIClient
+from vaidcord.application import Application, ApplicationRoleConnectionMetadata
 from vaidcord.errors import DiscordAPIError, ForbiddenError, RateLimitError
 from vaidcord.gateway_runtime import GatewayRuntime
+from vaidcord.http import DiscordError
+from vaidcord.logging import set_default_bot_id
+from vaidcord.metadata import __version__, build_user_agent
 from vaidcord.router import Router
 from vaidcord.types import (
     Channel,
@@ -94,6 +98,7 @@ class BotConfig:
     api_version: str = "10"
     base_url: str = "https://discord.com/api"
     gateway_url: str = "wss://gateway.discord.gg"
+    ignore_self_messages: bool = True
 
 
 class Bot(Router):
@@ -127,6 +132,11 @@ class Bot(Router):
             config = BotConfig(token=token, **kwargs)
 
         self.config = config
+        if not self.config.ignore_self_messages:
+            logger.warning(
+                "Self message handling is enabled; this can cause message loops. "
+                "Set ignore_self_messages=True to avoid this behavior."
+            )
         self._session: aiohttp.ClientSession | None = None
         self._running = False
         self._sequence: int | None = None
@@ -147,6 +157,11 @@ class Bot(Router):
 
         # Event handlers for internal events
         self._ready_event = asyncio.Event()
+        self._drop_pending_updates = False
+
+    def _log_extra(self) -> dict[str, str]:
+        """Return logging context for this bot when its identity is known."""
+        return {} if self.id is None else {"bot_id": str(self.id)}
 
     @property
     def is_ready(self) -> bool:
@@ -164,6 +179,13 @@ class Bot(Router):
         return self._user
 
     @property
+    def id(self) -> int | None:
+        """Get the bot user ID if available."""
+        if self._user is None:
+            return None
+        return self._user.id
+
+    @property
     def guilds(self) -> list[Guild]:
         """Get all cached guilds."""
         return list(self._guilds.values())
@@ -176,7 +198,11 @@ class Bot(Router):
     async def _create_session(self) -> aiohttp.ClientSession:
         """Create an aiohttp session for API requests."""
         if self._session is None or self._session.closed:
-            headers = {"Authorization": f"Bot {self.config.token}"}
+            headers = {
+                "Authorization": f"Bot {self.config.token}",
+                "User-Agent": build_user_agent(),
+                "X-VaidCord-Version": __version__,
+            }
             self._session = aiohttp.ClientSession(headers=headers)
         return self._session
 
@@ -227,14 +253,26 @@ class Bot(Router):
             logger.debug(f"Unknown event type: {event_type_str}")
             return
 
+        if self._drop_pending_updates and not self._ready_event.is_set() and event_type != EventType.READY:
+            return
+
         # Parse event data into typed objects
         event = await self._parse_event(event_type, d)
 
         # Handle special events
         if event_type == EventType.READY:
             await self._handle_ready(d)
+            if self._drop_pending_updates:
+                self._drop_pending_updates = False
         elif event_type == EventType.MESSAGE_CREATE:
             await self._handle_message_create(event, d)
+            if (
+                self.config.ignore_self_messages
+                and self._user is not None
+                and event.message is not None
+                and event.message.author.id == self._user.id
+            ):
+                return
 
         # Propagate event to handlers
         await self.propagate_event(event)
@@ -242,6 +280,11 @@ class Bot(Router):
     async def _parse_event(self, event_type: EventType, data: dict[str, Any]) -> Event:
         """Parse raw event data into a typed Event object."""
         event = Event(type=event_type, data=data, shard_id=self.config.shard_id)
+        event.event_id = str(data.get("id") or data.get("event_id") or uuid.uuid4())
+        event.raw_data = dict(data)
+        event.bot = self
+        if "interaction" in data:
+            event.interaction = data.get("interaction")
 
         # Parse common objects if present
         if "user" in data:
@@ -259,8 +302,7 @@ class Bot(Router):
         """Handle the READY event."""
         user_data = data.get("user", {})
         bot_user = self._parse_user(user_data)
-        self._user = bot_user
-        self._users[bot_user.id] = bot_user
+        self._remember_bot_user(bot_user)
 
         # Cache guilds
         for guild_data in data.get("guilds", []):
@@ -270,7 +312,12 @@ class Bot(Router):
         self._session_id = data.get("session_id")
         self._state = BotState.READY
         self._ready_event.set()
-        logger.info(f"Bot logged in as {bot_user.username}")
+        logger.info(
+            "Bot logged in as %s (id=%s)",
+            bot_user.username,
+            bot_user.id,
+            extra=self._log_extra(),
+        )
 
     async def _handle_message_create(self, event: Event, data: dict[str, Any]) -> None:
         """Handle MESSAGE_CREATE event."""
@@ -300,6 +347,13 @@ class Bot(Router):
             collectibles=data.get("collectibles"),
             primary_guild=data.get("primary_guild"),
         )
+
+    def _remember_bot_user(self, user: User) -> None:
+        """Cache current bot user and propagate its id to log contexts."""
+        self._user = user
+        self._users[user.id] = user
+        self.api_client.set_bot_id(user.id)
+        set_default_bot_id(user.id)
 
     def _parse_guild(self, data: dict[str, Any]) -> Guild:
         """Parse guild data into a Guild object."""
@@ -382,13 +436,15 @@ class Bot(Router):
 
         self._running = True
         self._state = BotState.CONNECTING
-        logger.info("Starting bot...")
+        logger.info("Starting bot...", extra=self._log_extra())
 
         try:
             await self._connect_gateway()
             await self._receive_messages()
         except KeyboardInterrupt:
             logger.info("Received keyboard interrupt")
+        except asyncio.CancelledError:
+            logger.info("Bot start task cancelled")
         finally:
             await self.stop()
 
@@ -415,7 +471,7 @@ class Bot(Router):
         await self.api_client.close()
         await self._close_session()
         self._state = BotState.STOPPED
-        logger.info("Bot stopped")
+        logger.info("Bot stopped", extra=self._log_extra())
 
     async def send_message(
         self,
@@ -472,9 +528,12 @@ class Bot(Router):
         *,
         tts: bool = False,
         allowed_mentions: dict[str, Any] | None = None,
+        mention_author: bool = True,
     ) -> dict[str, Any]:
         """Reply to an existing message."""
         message_reference = {"message_id": str(message_id)}
+        if not mention_author:
+            allowed_mentions = {**(allowed_mentions or {}), "replied_user": False}
         return await self.send_message(
             channel_id=channel_id,
             content=content,
@@ -589,11 +648,24 @@ class Bot(Router):
 
     async def delete_webhook(self, *, drop_pending_updates: bool = False) -> dict[str, Any]:
         """Compatibility helper for aiogram-like startup flows."""
-        return await self.request(
-            "POST",
-            "/webhooks",
-            json={"drop_pending_updates": drop_pending_updates},
-        )
+        if "discord.com/api" in self.config.base_url:
+            logger.debug("Discord gateway bots do not use webhooks; delete_webhook is a no-op.")
+            return {}
+        try:
+            return await self.request(
+                "POST",
+                "/webhooks",
+                json={"drop_pending_updates": drop_pending_updates},
+            )
+        except DiscordError as exc:
+            if "404" in exc.message:
+                logger.debug("Webhook deletion is not supported by this API endpoint.")
+                return {}
+            raise
+
+    def enable_drop_pending_updates(self) -> None:
+        """Drop gateway events until READY is received."""
+        self._drop_pending_updates = True
 
     async def get_current_application(self) -> Application:
         data = await self.request("GET", "/applications/@me")
@@ -611,7 +683,8 @@ class Bot(Router):
             "GET",
             f"/applications/{application_id}/role-connections/metadata",
         )
-        return [ApplicationRoleConnectionMetadata.from_dict(item) for item in data]
+        items = cast(list[dict[str, Any]], data)
+        return [ApplicationRoleConnectionMetadata.from_dict(item) for item in items]
 
     async def update_application_role_connection_metadata(
         self,
@@ -625,7 +698,8 @@ class Bot(Router):
             f"/applications/{application_id}/role-connections/metadata",
             json=[item.to_dict() for item in records],
         )
-        return [ApplicationRoleConnectionMetadata.from_dict(item) for item in data]
+        items = cast(list[dict[str, Any]], data)
+        return [ApplicationRoleConnectionMetadata.from_dict(item) for item in items]
 
     async def fetch_channel(self, channel_id: int) -> Channel:
         """Fetch and parse a channel from the API."""
@@ -652,16 +726,14 @@ class Bot(Router):
         """Get the current bot user via REST."""
         data = await self.api_client.get_current_user()
         user = self._parse_user(data)
-        self._users[user.id] = user
-        self._user = user
+        self._remember_bot_user(user)
         return user
 
     async def modify_current_user(self, **payload: Any) -> User:
         """Modify the current user settings (username/avatar/banner)."""
         data = await self.api_client.modify_current_user(payload)
         user = self._parse_user(data)
-        self._users[user.id] = user
-        self._user = user
+        self._remember_bot_user(user)
         return user
 
     async def get_current_user_guilds(self, **params: Any) -> list[Guild]:
@@ -682,9 +754,11 @@ class Bot(Router):
         self._guilds.pop(guild_id, None)
         return result
 
-    def run(self) -> None:
+    def run(self, *, drop_pending_updates: bool = False) -> None:
         """Run the bot (blocking)."""
         try:
+            if drop_pending_updates:
+                self.enable_drop_pending_updates()
             asyncio.run(self.start())
         except KeyboardInterrupt:
             pass

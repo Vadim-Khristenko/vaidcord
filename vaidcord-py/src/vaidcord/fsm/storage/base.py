@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol, TypeAlias
+from typing import Any, Protocol
 
-StateValue: TypeAlias = str | StrEnum
+from vaidcord.fsm.state import State
+
+type StateValue = str | StrEnum | State
 
 
 class FSMScope(StrEnum):

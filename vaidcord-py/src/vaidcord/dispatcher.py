@@ -5,8 +5,8 @@ from typing import Any, Protocol
 
 from vaidcord.fsm import BaseFSMStorage, FSMMiddleware, MemoryFSMStorage
 from vaidcord.router import Router
-from vaidcord.typing import EventHandlerResult
 from vaidcord.types import Event
+from vaidcord.typing import EventHandlerResult
 
 
 class DispatcherBotProtocol(Protocol):
@@ -59,13 +59,20 @@ class Dispatcher(Router):
             raise ValueError("Dispatcher cannot include another Dispatcher")
         super().include_router(router)
 
-    async def start_polling(self, bot: DispatcherBotProtocol) -> None:
+    async def start_polling(
+        self,
+        bot: DispatcherBotProtocol,
+        *,
+        drop_pending_updates: bool = False,
+    ) -> None:
         """
         Start bot and route events through dispatcher routers.
         """
         self.bot = bot
         self.provide("bot", bot)
         bot.include_router(self)
+        if drop_pending_updates and hasattr(bot, "enable_drop_pending_updates"):
+            bot.enable_drop_pending_updates()  # type: ignore[attr-defined]
         self._active_bots.add(bot)
         if not self._started:
             await self.startup()
@@ -78,20 +85,32 @@ class Dispatcher(Router):
                 await self.shutdown()
                 self._started = False
 
-    async def start_websocket(self, bot: DispatcherBotProtocol) -> None:
+    async def start_websocket(
+        self,
+        bot: DispatcherBotProtocol,
+        *,
+        drop_pending_updates: bool = False,
+    ) -> None:
         """Alias for explicit websocket startup."""
-        await self.start_polling(bot)
+        await self.start_polling(bot, drop_pending_updates=drop_pending_updates)
 
-    async def start_polling_many(self, bots: list[DispatcherBotProtocol]) -> None:
+    async def start_polling_many(
+        self,
+        bots: list[DispatcherBotProtocol],
+        *,
+        drop_pending_updates: bool = False,
+    ) -> None:
         """Start multiple bots concurrently with shared dispatcher wiring."""
         if not bots:
             raise ValueError("start_polling_many requires at least one bot")
-        await asyncio.gather(*(self.start_polling(bot) for bot in bots))
+        await asyncio.gather(
+            *(self.start_polling(bot, drop_pending_updates=drop_pending_updates) for bot in bots)
+        )
 
     async def start_webhook(self, bot: DispatcherBotProtocol, *, drop_pending_updates: bool = False) -> None:
         """Webhook-style startup helper (webhook server integration is app-defined)."""
         await bot.delete_webhook(drop_pending_updates=drop_pending_updates)
-        await self.start_polling(bot)
+        await self.start_polling(bot, drop_pending_updates=drop_pending_updates)
 
     async def start_webhook_many(
         self,

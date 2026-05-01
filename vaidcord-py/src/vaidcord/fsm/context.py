@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from vaidcord.typing import EventHandlerResult, NextHandler
 from vaidcord.types import Event
+from vaidcord.typing import EventHandlerResult, NextHandler
 
 from .storage.base import BaseFSMStorage, FSMScope, StateValue, StorageKey
 from .storage.memory import MemoryFSMStorage
@@ -77,9 +77,13 @@ class FSMMiddleware:
         fsm_map = self._build_fsm_map(manager, ids)
         if fsm_map:
             event.context["fsm_map"] = fsm_map
+            event.context["fsm_states"] = {
+                scope: await fsm.get_state() for scope, fsm in fsm_map.items()
+            }
             primary = fsm_map.get(self.primary_scope)
-            if primary is not None:
-                event.context["fsm"] = primary
+            primary_scope = self.primary_scope if primary is not None else next(iter(fsm_map))
+            event.context["fsm"] = primary or fsm_map[primary_scope]
+            event.context["fsm_state"] = event.context["fsm_states"].get(primary_scope)
 
         return await handler(event)
 

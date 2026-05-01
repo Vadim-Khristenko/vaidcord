@@ -8,11 +8,11 @@ permission overwrites, and role hierarchy calculations.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import IntFlag, auto
+from enum import IntFlag
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .types import Member, Role, Channel, Guild
+    from .types import Channel, Guild, Member
 
 
 class Permissions(IntFlag):

@@ -14,6 +14,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_GATEWAY_CLOSE_HINTS = {
+    4013: "invalid intents were sent in IDENTIFY",
+    4014: "a privileged intent was requested but is not enabled or approved",
+}
+
+
 class GatewayRuntime:
     """Owns gateway lifecycle and websocket state machine for Bot."""
 
@@ -77,30 +83,36 @@ class GatewayRuntime:
     async def run(self) -> None:
         if not self._ws:
             return
-        async for msg in self._ws:
-            if msg.type == aiohttp.WSMsgType.TEXT:
-                data = json.loads(msg.data)
-                op = data.get("op")
-                if op == 0:
-                    await self._bot._handle_dispatch(data)
-                elif op == 9:
-                    from vaidcord.bot import BotState
+        try:
+            async for msg in self._ws:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+                    op = data.get("op")
+                    if op == 0:
+                        await self._bot._handle_dispatch(data)
+                    elif op == 9:
+                        from vaidcord.bot import BotState
 
-                    self._bot._state = BotState.RECONNECTING
-                    await asyncio.sleep(5)
-                    await self.identify()
-                elif op == 10:
-                    self._heartbeat_interval = data["d"]["heartbeat_interval"]
-                    await self.identify()
-                    if self._heartbeat_task:
-                        self._heartbeat_task.cancel()
-                    self._heartbeat_task = asyncio.create_task(self._heartbeat())
-                elif op == 11:
-                    if self._last_heartbeat_sent_at is not None:
-                        self._latency = time.monotonic() - self._last_heartbeat_sent_at
-                    logger.debug("Received heartbeat ACK")
-            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                break
+                        self._bot._state = BotState.RECONNECTING
+                        await asyncio.sleep(5)
+                        await self.identify()
+                    elif op == 10:
+                        self._heartbeat_interval = data["d"]["heartbeat_interval"]
+                        await self.identify()
+                        if self._heartbeat_task:
+                            self._heartbeat_task.cancel()
+                        self._heartbeat_task = asyncio.create_task(self._heartbeat())
+                    elif op == 11:
+                        if self._last_heartbeat_sent_at is not None:
+                            self._latency = time.monotonic() - self._last_heartbeat_sent_at
+                        logger.debug("Received heartbeat ACK")
+                elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                    break
+        except asyncio.CancelledError:
+            logger.debug("Gateway runtime cancelled")
+            return
+        finally:
+            self._log_close_code()
 
     async def stop(self) -> None:
         if self._heartbeat_task:
@@ -109,3 +121,15 @@ class GatewayRuntime:
         if self._ws and not self._ws.closed:
             await self._ws.close()
         self._ws = None
+
+    def _log_close_code(self) -> None:
+        if self._ws is None:
+            return
+        close_code = self._ws.close_code
+        if close_code is None:
+            return
+        hint = _GATEWAY_CLOSE_HINTS.get(close_code)
+        if hint is None:
+            logger.info("Gateway websocket closed with code %s", close_code)
+            return
+        logger.warning("Gateway websocket closed with code %s: %s", close_code, hint)

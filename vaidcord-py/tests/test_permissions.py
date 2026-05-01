@@ -2,7 +2,6 @@
 Tests for permissions module.
 """
 
-import pytest
 
 from vaidcord.permissions import (
     PermissionCalculator,
@@ -189,7 +188,7 @@ class TestPermissionCalculator:
             is_timed_out = lambda self: False
             id = 123
             roles = []
-            
+
             def is_timed_out(self):
                 return False
 

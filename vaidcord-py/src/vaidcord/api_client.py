@@ -11,6 +11,10 @@ class APIClient:
     def __init__(self, token: str, *, base_url: str = "https://discord.com/api", api_version: str = "10") -> None:
         self._http = HTTPClient(HTTPConfig(token=token, base_url=base_url, api_version=api_version))
 
+    def set_bot_id(self, bot_id: str | int | None) -> None:
+        """Attach bot identity to lower-level HTTP logs."""
+        self._http.set_bot_id(bot_id)
+
     def _normalize_endpoint(self, endpoint: str) -> str:
         if not endpoint.startswith("/"):
             return f"/{endpoint}"
