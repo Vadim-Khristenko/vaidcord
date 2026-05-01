@@ -25,7 +25,7 @@ async def handle_ping(event: Event) -> None:
     if event.message and event.message.content.lower() == "!ping":
         response = Formatter.bold("Pong!") + " 🏓"
         print(response)
-        # In real usage: await event.message.channel.send(response)
+        # In real usage: await event.message.answer(response)
 
 
 @commands_router.on_message()

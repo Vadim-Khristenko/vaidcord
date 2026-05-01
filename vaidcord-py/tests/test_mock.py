@@ -1,5 +1,8 @@
 """Tests for VaidCord mock utilities."""
 
+import logging
+import shutil
+import subprocess
 from datetime import datetime
 
 import pytest
@@ -11,6 +14,7 @@ from vaidcord import (
 )
 from vaidcord.formatting import Formatter
 from vaidcord.mock import MockSettings
+from vaidcord.mock.ui import MOCK_UI_HTML, validate_mock_ui
 from vaidcord.types import ChannelType, EventType
 
 
@@ -137,6 +141,26 @@ def test_mock_bot_configure_runtime_settings():
     bot.configure(default_rate_limit=99, network_delay=0.01)
     assert bot.settings.default_rate_limit == 99
     assert bot.settings.network_delay == 0.01
+
+
+def test_mock_ui_validates_generated_html() -> None:
+    validate_mock_ui()
+
+
+def test_mock_ui_embedded_javascript_has_valid_syntax(tmp_path) -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not available")
+    script = MOCK_UI_HTML.split("<script>", 1)[1].split("</script>", 1)[0]
+    script_path = tmp_path / "mock-ui.js"
+    script_path.write_text(script, encoding="utf-8")
+
+    subprocess.run(
+        [node, "--check", str(script_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 @pytest.mark.asyncio
@@ -273,6 +297,32 @@ async def test_mock_discord_server_smoke():
                 assert payload["id"] == message_id
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_mock_discord_server_logs_structured_requests(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import aiohttp
+
+    from vaidcord.mock import MockDiscordServer
+
+    server = MockDiscordServer(port=0)
+    with caplog.at_level(logging.INFO, logger="vaidcord.mock.server"):
+        await server.start()
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{server.base_url}/v10/gateway/bot") as resp:
+                    assert resp.status == 200
+        finally:
+            await server.stop()
+
+    events = [record.msg["event"] for record in caplog.records if isinstance(record.msg, dict)]
+    assert "mock.server.started" in events
+    assert "mock.request.start" in events
+    assert "mock.request.done" in events
+    assert "mock.server.stopped" in events
+    assert server.requests[0]["request_id"]
 
 
 @pytest.mark.asyncio

@@ -116,7 +116,7 @@ router = Router()
 
 @router.on_message()
 async def echo(event: Event) -> None:
-    await event.message.channel.send("pong")
+    await event.message.answer("pong")
 ```
 
 ```python
@@ -129,7 +129,7 @@ router = Router()
 @router.on_message(F.message.content.startswith("/set "))
 async def set_value(event: Event, matched_text: str) -> None:
     # `matched_text` comes from filter-return payload
-    await event.message.channel.send(f"Got: {matched_text}")
+    await event.message.answer(f"Got: {matched_text}")
 ```
 
 ```python
@@ -153,5 +153,5 @@ from vaidcord.types import Event
 
 class PingHandler(AbstractEventHandler[Event]):
     async def __call__(self, event: Event, **kwargs: object) -> None:
-        await event.message.channel.send("pong")
+        await event.message.answer("pong")
 ```

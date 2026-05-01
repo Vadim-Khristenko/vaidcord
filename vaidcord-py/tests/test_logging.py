@@ -58,6 +58,7 @@ def test_logging_formatter_promotes_request_id_from_structured_message() -> None
 
     assert "[API]" in text
     assert "Request id=\"req-1\"" in text
+    assert "http.request.done status=200" in text
 
 
 def test_logging_formatter_uses_default_bot_id_for_contextless_logs() -> None:

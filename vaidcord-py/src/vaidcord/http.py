@@ -24,6 +24,7 @@ from typing import Any, cast
 import aiohttp
 from aiohttp import ClientSession, TCPConnector
 
+from vaidcord.errors import create_discord_error
 from vaidcord.metadata import __version__, build_user_agent
 
 logger = logging.getLogger(__name__)
@@ -239,7 +240,6 @@ class HTTPClient:
             "Authorization": f"Bot {self.config.token}",
             "User-Agent": user_agent,
             "X-VaidCord-Version": __version__,
-            "Content-Type": "application/json",
         }
 
     async def _create_session(self) -> ClientSession:
@@ -459,9 +459,6 @@ class HTTPClient:
         sanitized_payload = (
             self._sanitize_payload(kwargs["json"]) if has_json else None
         )
-        if has_json:
-            kwargs["data"] = json.dumps(kwargs["json"])
-            del kwargs["json"]
 
         response = await self._request_with_retry(
             method,
@@ -482,7 +479,7 @@ class HTTPClient:
                     "message": response.body.decode("utf-8", errors="replace"),
                 }
 
-            discord_error = DiscordError.from_response(response.status, error_data)
+            discord_error = create_discord_error(response.status, error_data)
             self._log_http_event(
                 "http.request.error",
                 request_id,

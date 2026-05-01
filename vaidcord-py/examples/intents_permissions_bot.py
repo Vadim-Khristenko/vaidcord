@@ -10,7 +10,7 @@ from vaidcord import Bot, Dispatcher, Router, configure_logging
 from vaidcord.bot import GatewayIntent
 from vaidcord.filters import CommandFilter
 from vaidcord.permissions import Permissions
-from vaidcord.types import Event
+from vaidcord.types import Event, Message
 
 logger = logging.getLogger("vaidcord.examples.permissions")
 router = Router(name="intents-permissions")
@@ -35,9 +35,8 @@ async def ready(bot: Bot) -> None:
 
 
 @router.on_message_create(CommandFilter(("permissions",)))
-async def permissions_hint(event: Event, bot: Bot) -> None:
-    await bot.send_message(
-        event.message.channel_id,
+async def permissions_hint(message: Message) -> None:
+    await message.answer(
         "Required in this channel: View Channel, Send Messages, Read Message History, "
         "Embed Links. Guild text commands also require MESSAGE_CONTENT intent.",
     )

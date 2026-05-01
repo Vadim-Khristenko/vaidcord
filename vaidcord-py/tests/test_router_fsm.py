@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -298,6 +298,55 @@ async def test_dispatcher_include_routers_and_start_polling(monkeypatch: pytest.
     await dp.start_polling(bot)  # type: ignore[arg-type]
     assert bot.started is True
     assert bot.included == [dp]
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_start_polling_many_can_share_dispatcher() -> None:
+    dp = Dispatcher()
+    started: list[str] = []
+
+    class FakeBot(Router):
+        def __init__(self, name: str) -> None:
+            super().__init__(name=name)
+            self.bot_name = name
+
+        async def start(self) -> None:
+            started.append(self.bot_name)
+
+        async def delete_webhook(self, *, drop_pending_updates: bool = False) -> dict[str, Any]:
+            return {"drop_pending_updates": drop_pending_updates}
+
+    bot_a = FakeBot("a")
+    bot_b = FakeBot("b")
+
+    await dp.start_polling_many([bot_a, bot_b])
+
+    assert sorted(started) == ["a", "b"]
+    assert dp in bot_a._routers
+    assert dp in bot_b._routers
+
+
+@pytest.mark.asyncio
+async def test_event_bot_context_overrides_shared_dispatcher_dependency() -> None:
+    dp = Dispatcher()
+    captured: list[object] = []
+    bot_a = object()
+    bot_b = object()
+
+    @dp.on_ready()
+    async def ready(bot: object) -> None:
+        captured.append(bot)
+
+    event_a = Event(type=EventType.READY, data={})
+    event_a.bot = cast(Any, bot_a)
+    event_b = Event(type=EventType.READY, data={})
+    event_b.bot = cast(Any, bot_b)
+
+    dp.provide("bot", bot_b)
+    await dp.propagate_event(event_a)
+    await dp.propagate_event(event_b)
+
+    assert captured == [bot_a, bot_b]
 
 
 @pytest.mark.asyncio

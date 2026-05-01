@@ -8,22 +8,20 @@ import os
 from vaidcord import Bot, Dispatcher, Formatter, Router, configure_logging
 from vaidcord.bot import GatewayIntent
 from vaidcord.filters import CommandFilter, F
-from vaidcord.types import Event
+from vaidcord.types import Message, Ready
 
 router = Router(name="hello")
 
 
 @router.on_ready()
-async def ready(bot: Bot) -> None:
-    user = bot.user or await bot.get_current_user()
+async def ready(event: Ready, bot: Bot) -> None:
+    user = event.user or bot.user or await bot.get_current_user()
     print(f"Logged in as {user.username} ({user.id})")
 
 
 @router.on_message_create(CommandFilter(("start",)))
-async def start(event: Event, bot: Bot) -> None:
-    await bot.reply(
-        channel_id=event.message.channel_id,
-        message_id=event.message.id,
+async def start(message: Message) -> None:
+    await message.reply(
         content=Formatter.bold("Hello from VaidCord!"),
         mention_author=False,
     )
@@ -34,11 +32,8 @@ async def start(event: Event, bot: Bot) -> None:
     & F.message.content.not_in({"/start"})
     & ~F.message.content.startswith("/")
 )
-async def echo(event: Event, bot: Bot) -> None:
-    await bot.send_message(
-        event.message.channel_id,
-        f"echo: {event.message.content}",
-    )
+async def echo(message: Message) -> None:
+    await message.answer(f"echo: {message.content}")
 
 
 def build_dispatcher() -> Dispatcher:

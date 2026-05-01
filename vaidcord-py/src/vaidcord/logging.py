@@ -85,7 +85,7 @@ class VaidcordFormatter(logging.Formatter):
         bot_id = getattr(record, "bot_id", "-")
         event_id = getattr(record, "event_id", "-")
         request_id = getattr(record, "request_id", "-")
-        message = record.getMessage()
+        message = _format_log_message(record)
 
         if self._use_color:
             level = _badge(level, _background_for_level(record.levelname))
@@ -247,6 +247,8 @@ def _derive_category(logger_name: str) -> str:
         return "GATEWAY"
     if "http" in name or "api_client" in name or "oauth" in name:
         return "API"
+    if "mock" in name:
+        return "MOCK"
     if "bot" in name:
         return "BOT"
     return "GENERAL"
@@ -301,6 +303,21 @@ def _record_mapping(record: logging.LogRecord) -> dict[str, Any] | None:
     if isinstance(record.msg, dict):
         return record.msg
     return None
+
+
+def _format_log_message(record: logging.LogRecord) -> str:
+    payload = _record_mapping(record)
+    if payload is None:
+        return record.getMessage()
+    event = payload.get("event", "event")
+    fields = [
+        f"{key}={value!r}"
+        for key, value in payload.items()
+        if key not in {"event", "bot_id", "event_id", "message_id", "request_id"}
+    ]
+    if not fields:
+        return str(event)
+    return f"{event} " + " ".join(fields)
 
 
 def _bot_filename(base_path: Path, bot_id: str) -> Path:

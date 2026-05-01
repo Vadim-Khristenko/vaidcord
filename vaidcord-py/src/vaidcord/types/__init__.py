@@ -151,13 +151,14 @@ class ChannelType(Enum):
     GROUP_DM = 3
     CATEGORY = 4
     ANNOUNCEMENT = 5
+    ANNOUNCEMENT_THREAD = 10
     NEWS_THREAD = 10
     PUBLIC_THREAD = 11
     PRIVATE_THREAD = 12
     STAGE = 13
     DIRECTORY = 14
     FORUM = 15
-
+    MEDIA = 16
 
 @dataclass(frozen=True)
 class User:
@@ -249,6 +250,13 @@ class Guild:
     max_video_channel_users: int | None = None
     approximate_member_count: int | None = None
     approximate_presence_count: int | None = None
+    welcome_screen: dict[str, Any] | None = None
+    nsfw_level: int | None = None
+    stickers: list[dict[str, Any]] = field(default_factory=list)
+    premium_progress_bar_enabled: bool | None = None
+    safety_alerts_channel_id: int | None = None
+    incidents_data: dict[str, Any] | None = None
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @property
     def mention(self) -> str:
@@ -262,6 +270,7 @@ class Channel:
 
     id: int
     type: ChannelType
+    guild_id: int | None = None
     name: str | None = None
     position: int | None = None
     permission_overwrites: list[dict[str, Any]] = field(default_factory=list)
@@ -275,6 +284,7 @@ class Channel:
     icon: str | None = None
     owner_id: int | None = None
     application_id: int | None = None
+    managed: bool | None = None
     parent_id: int | None = None
     last_pin_timestamp: str | None = None
     rtc_region: str | None = None
@@ -286,6 +296,14 @@ class Channel:
     default_auto_archive_duration: int | None = None
     permissions: str | None = None
     flags: int | None = None
+    total_message_sent: int | None = None
+    available_tags: list[dict[str, Any]] = field(default_factory=list)
+    applied_tags: list[int] = field(default_factory=list)
+    default_reaction_emoji: dict[str, Any] | None = None
+    default_thread_rate_limit_per_user: int | None = None
+    default_sort_order: int | None = None
+    default_forum_layout: int | None = None
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @property
     def mention(self) -> str:
@@ -319,15 +337,24 @@ class Message:
     application: dict[str, Any] = field(default_factory=dict)
     application_id: int | None = None
     message_reference: dict[str, Any] = field(default_factory=dict)
+    message_snapshots: list[dict[str, Any]] = field(default_factory=list)
     flags: int | None = None
     referenced_message: Message | None = None
+    interaction_metadata: dict[str, Any] = field(default_factory=dict)
     interaction: dict[str, Any] = field(default_factory=dict)
     thread: Channel | None = None
     components: list[dict[str, Any]] = field(default_factory=list)
     sticker_items: list[dict[str, Any]] = field(default_factory=list)
     stickers: list[dict[str, Any]] = field(default_factory=list)
+    position: int | None = None
+    role_subscription_data: dict[str, Any] = field(default_factory=dict)
+    resolved: dict[str, Any] = field(default_factory=dict)
+    poll: dict[str, Any] | None = None
+    call: dict[str, Any] | None = None
+    shared_client_theme: dict[str, Any] | None = None
     guild: Guild | None = None
     member: dict[str, Any] = field(default_factory=dict)
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
     bot: Bot | None = field(default=None, repr=False, compare=False)
 
     @property
@@ -357,6 +384,134 @@ class Message:
             raise RuntimeError("Message is not bound to a bot instance")
         return await self.bot.send_message(self.channel_id, content, **kwargs)
 
+    async def edit(self, **payload: Any) -> Message:
+        """Edit this message."""
+        if self.bot is None:
+            raise RuntimeError("Message is not bound to a bot instance")
+        return await self.bot.edit_message(self.channel_id, self.id, **payload)
+
+    async def delete(self) -> dict[str, Any]:
+        """Delete this message."""
+        if self.bot is None:
+            raise RuntimeError("Message is not bound to a bot instance")
+        return await self.bot.delete_message(self.channel_id, self.id)
+
+    async def pin(self) -> dict[str, Any]:
+        """Pin this message in its channel."""
+        if self.bot is None:
+            raise RuntimeError("Message is not bound to a bot instance")
+        return await self.bot.pin_message(self.channel_id, self.id)
+
+    async def unpin(self) -> dict[str, Any]:
+        """Unpin this message in its channel."""
+        if self.bot is None:
+            raise RuntimeError("Message is not bound to a bot instance")
+        return await self.bot.unpin_message(self.channel_id, self.id)
+
+    async def add_reaction(self, emoji: str) -> dict[str, Any]:
+        """React to this message."""
+        if self.bot is None:
+            raise RuntimeError("Message is not bound to a bot instance")
+        return await self.bot.add_reaction(self.channel_id, self.id, emoji)
+
+
+@dataclass(frozen=True)
+class Ready:
+    """Typed payload for the Discord READY gateway event."""
+
+    version: int | None = None
+    user: User | None = None
+    guilds: list[Guild] = field(default_factory=list)
+    session_id: str | None = None
+    resume_gateway_url: str | None = None
+    shard: tuple[int, int] | None = None
+    application: dict[str, Any] | None = None
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class Resume:
+    """Typed payload for the Discord RESUMED gateway event."""
+
+    session_id: str | None = None
+    sequence: int | None = None
+    replayed: bool = True
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class DeletedMessage:
+    """Typed payload for MESSAGE_DELETE."""
+
+    id: int
+    channel_id: int
+    guild_id: int | None = None
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class BulkDeletedMessages:
+    """Typed payload for MESSAGE_DELETE_BULK."""
+
+    ids: list[int]
+    channel_id: int
+    guild_id: int | None = None
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class Reaction:
+    """Typed payload for message reaction gateway events."""
+
+    user_id: int | None
+    channel_id: int
+    message_id: int
+    guild_id: int | None = None
+    member: dict[str, Any] | None = None
+    emoji: dict[str, Any] = field(default_factory=dict)
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class TypingStart:
+    """Typed payload for TYPING_START."""
+
+    channel_id: int
+    user_id: int
+    timestamp: int
+    guild_id: int | None = None
+    member: dict[str, Any] | None = None
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class PollVote:
+    """Typed payload for poll vote gateway events."""
+
+    user_id: int
+    channel_id: int
+    message_id: int
+    answer_id: int
+    guild_id: int | None = None
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class MessagePin:
+    """A channel pin entry returned by the modern channel pins endpoint."""
+
+    pinned_at: datetime
+    message: Message
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class RawGatewayEvent:
+    """Fallback typed wrapper for gateway payloads without a dedicated model."""
+
+    type: EventType | WebhookEventType
+    data: dict[str, Any]
+    raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 @dataclass
 class Event:
@@ -379,6 +534,15 @@ class Event:
     channel: Channel | None = None
     context: dict[str, Any] = field(default_factory=dict)
     interaction: dict[str, Any] | None = None
+    object: Any | None = None
+    payload: Any | None = None
+    ready: Ready | None = None
+    resume: Resume | None = None
+    deleted_message: DeletedMessage | None = None
+    deleted_messages: BulkDeletedMessages | None = None
+    reaction: Reaction | None = None
+    typing: TypingStart | None = None
+    poll_vote: PollVote | None = None
     raw_data: dict[str, Any] = field(default_factory=dict)
     bot: Bot | None = field(default=None, repr=False, compare=False)
 

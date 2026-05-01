@@ -361,6 +361,74 @@ def test_gateway_close_logs_privileged_intent_hint(caplog: pytest.LogCaptureFixt
 
 
 @pytest.mark.asyncio
+async def test_gateway_runtime_sends_immediate_heartbeat_request() -> None:
+    bot = Bot(token="test-token")
+    runtime = GatewayRuntime(bot)
+    sent: list[dict[str, Any]] = []
+
+    class FakeWebSocket:
+        closed = False
+
+        async def send_json(self, payload: dict[str, Any]) -> None:
+            sent.append(payload)
+
+    runtime._ws = cast(Any, FakeWebSocket())
+    bot._sequence = 55
+
+    await runtime._send_heartbeat()
+
+    assert sent == [{"op": 1, "d": 55}]
+    assert runtime._heartbeat_ack_received is False
+
+
+@pytest.mark.asyncio
+async def test_gateway_runtime_resume_payload_uses_cached_session() -> None:
+    bot = Bot(token="test-token")
+    runtime = GatewayRuntime(bot)
+    sent: list[dict[str, Any]] = []
+
+    class FakeWebSocket:
+        closed = False
+
+        async def send_json(self, payload: dict[str, Any]) -> None:
+            sent.append(payload)
+
+    runtime._ws = cast(Any, FakeWebSocket())
+    bot._session_id = "session"
+    bot._sequence = 99
+
+    await runtime.resume()
+
+    assert sent == [
+        {
+            "op": 6,
+            "d": {"token": "test-token", "session_id": "session", "seq": 99},
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_gateway_runtime_reconnects_when_heartbeat_ack_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = Bot(token="test-token")
+    runtime = GatewayRuntime(bot)
+    calls: list[bool] = []
+
+    async def fake_reconnect(*, resume: bool) -> None:
+        calls.append(resume)
+
+    monkeypatch.setattr(runtime, "reconnect", fake_reconnect)
+    runtime._heartbeat_ack_received = False
+    runtime._heartbeat_interval = 0
+    bot._running = True
+
+    await runtime._heartbeat()
+
+    assert calls == [True]
+
+
+@pytest.mark.asyncio
 async def test_message_reply_calls_bot_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     """Message.reply should delegate to bot.reply with message id reference."""
     bot = Bot(token="test-token")

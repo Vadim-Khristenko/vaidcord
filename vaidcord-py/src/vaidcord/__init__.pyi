@@ -4,7 +4,7 @@ from vaidcord.application import (
     ApplicationRoleConnectionMetadata,
     ApplicationRoleConnectionMetadataType,
 )
-from vaidcord.bot import Bot, BotState, GatewayIntent
+from vaidcord.bot import Bot, BotConfig, BotState, GatewayIntent
 from vaidcord.dispatcher import Dispatcher
 from vaidcord.errors import (
     AuthenticationError,
@@ -85,7 +85,24 @@ from vaidcord.permissions import (
     check_permission,
 )
 from vaidcord.router import LifecycleHandler, Router, RouterFilterConfig
-from vaidcord.types import Channel, Event, EventType, Guild, Message, User, WebhookEventType
+from vaidcord.types import (
+    BulkDeletedMessages,
+    Channel,
+    DeletedMessage,
+    Event,
+    EventType,
+    Guild,
+    Message,
+    MessagePin,
+    PollVote,
+    RawGatewayEvent,
+    Reaction,
+    Ready,
+    Resume,
+    TypingStart,
+    User,
+    WebhookEventType,
+)
 from vaidcord.typing import EventHandler, EventHandlerResult, Middleware, NextHandler
 
 __version__: str

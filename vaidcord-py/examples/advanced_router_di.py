@@ -11,7 +11,7 @@ from time import perf_counter
 from vaidcord import Bot, Dispatcher, Router, configure_logging
 from vaidcord.bot import GatewayIntent
 from vaidcord.filters import CommandFilter, F
-from vaidcord.types import Event
+from vaidcord.types import Event, Message, PollVote, Ready
 
 NextHandler = Callable[[Event], Awaitable[object]]
 logger = logging.getLogger("vaidcord.examples.advanced")
@@ -55,43 +55,38 @@ async def on_shutdown() -> None:
 
 
 @public_router.on_ready()
-async def ready(bot: Bot) -> None:
-    logger.info("Ready handler sees bot_id=%s", bot.id)
+async def ready(ready_event: Ready, bot: Bot) -> None:
+    logger.info("Ready handler sees bot_id=%s session=%s", bot.id, ready_event.session_id)
 
 
 @public_router.on_message_create(CommandFilter(("start",)))
-async def start(event: Event, bot: Bot, service: SupportService) -> None:
-    await bot.reply(
-        event.message.channel_id,
-        event.message.id,
+async def start(message: Message, service: SupportService) -> None:
+    await message.reply(
         f"Welcome. {await service.status_text()}. Try /help.",
         mention_author=False,
     )
 
 
 @public_router.on_message_create(CommandFilter(("help",)))
-async def help_command(event: Event, bot: Bot) -> None:
-    await bot.send_message(
-        event.message.channel_id,
-        "Try /start, /echo hello, /poll, or /stats.",
-    )
+async def help_command(message: Message) -> None:
+    await message.answer("Try /start, /echo hello, /poll, or /stats.")
 
 
 @public_router.on_message_create(F.message.content.startswith("/echo"))
-async def echo(event: Event, bot: Bot) -> None:
-    _, _, payload = event.message.content.partition(" ")
-    await bot.send_message(event.message.channel_id, payload or "Usage: /echo your text")
+async def echo(message: Message) -> None:
+    _, _, payload = message.content.partition(" ")
+    await message.answer(payload or "Usage: /echo your text")
 
 
 @public_router.on_private_message()
-async def dm_only(event: Event, bot: Bot) -> None:
-    await bot.send_message(event.message.channel_id, "This handler only sees direct messages.")
+async def dm_only(message: Message) -> None:
+    await message.answer("This handler only sees direct messages.")
 
 
 @public_router.on_message_create(CommandFilter(("poll",)))
-async def send_poll(event: Event, bot: Bot) -> None:
+async def send_poll(message: Message, bot: Bot) -> None:
     await bot.send_poll(
-        event.message.channel_id,
+        message.channel_id,
         question="Which feature should be expanded next?",
         answers=["FSM", "Filters", "Gateway events"],
         duration_hours=24,
@@ -99,8 +94,14 @@ async def send_poll(event: Event, bot: Bot) -> None:
 
 
 @public_router.on_message_poll_vote_add()
-async def poll_vote(event: Event) -> None:
-    logger.info("Poll vote event received", extra={"event": event})
+async def poll_vote(vote: PollVote, event: Event) -> None:
+    logger.info(
+        "Poll vote event received: user=%s message=%s answer=%s",
+        vote.user_id,
+        vote.message_id,
+        vote.answer_id,
+        extra={"event": event},
+    )
 
 
 @public_router.on_guild_member_add()
@@ -111,14 +112,11 @@ async def member_join(event: Event, bot: Bot) -> None:
 
 @admin_router.on_message_create(CommandFilter(("stats",)))
 async def stats(
-    event: Event,
-    bot: Bot,
+    message: Message,
     admin_label: str,
     service: SupportService,
 ) -> None:
-    await bot.reply(
-        event.message.channel_id,
-        event.message.id,
+    await message.reply(
         f"{admin_label} {await service.status_text()}; trace context is attached.",
         mention_author=False,
     )

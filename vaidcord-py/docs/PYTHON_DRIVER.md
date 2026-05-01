@@ -52,24 +52,26 @@ Creating routers inside a dispatcher factory is still valid for tiny scripts, bu
 
 ## Dependency injection
 
-Dependencies are resolved by name. The lookup walks from the current router up through its parents.
+Dependencies are resolved by name first and by type annotation when the name does not match. The lookup walks from the current router up through its parents.
 
 - `dispatcher.provide("service_name", value)` makes the value visible to all descendants.
 - `router.provide("service_name", value)` keeps the value local to that subtree.
 - Only handler parameters that appear in the function signature are injected.
+- Gateway objects such as `Message`, `Guild`, `Channel`, `Ready`, `Resume`, `Reaction`, `TypingStart`, and `PollVote` can be requested directly by annotation.
 
 Example:
 
 ```python
 from vaidcord import F, Router
+from vaidcord.types import Message
 
 router = Router(name="support")
 router.provide("service_name", "helpdesk")
 
 
 @router.on_message(F.message.content.startswith("/ticket"))
-async def open_ticket(event, service_name: str, startswith: str, matched_text: str):
-    await event.message.answer(f"[{service_name}] matched {startswith}: {matched_text}")
+async def open_ticket(message: Message, service_name: str, startswith: str, matched_text: str):
+    await message.answer(f"[{service_name}] matched {startswith}: {matched_text}")
 ```
 
 The interesting part is that `startswith` and `matched_text` come from the filter, not from your own code. When a filter returns a dictionary, that dictionary is merged into the handler kwargs.
@@ -91,13 +93,14 @@ That makes patterns like this possible:
 
 ```python
 from vaidcord import F, Router
+from vaidcord.types import Message
 
 router = Router()
 
 
 @router.on_message(F.message.content.startswith("/order") & F.user.id.in_({10, 11}))
-async def on_order(event, startswith: str, matched_text: str) -> None:
-    await event.message.answer(f"Prefix: {startswith}, full text: {matched_text}")
+async def on_order(message: Message, startswith: str, matched_text: str) -> None:
+    await message.answer(f"Prefix: {startswith}, full text: {matched_text}")
 ```
 
 The `F.message.content.startswith(...)` filter passes and injects a small payload. That is one of the nicest parts of the framework because it keeps parsing close to matching.
@@ -130,6 +133,7 @@ Example:
 ```python
 from vaidcord import Router, State, StatesGroup
 from vaidcord.fsm import FSMContext
+from vaidcord.types import Message
 
 
 class OrderFood(StatesGroup):
@@ -141,8 +145,8 @@ router = Router(name="orders")
 
 
 @router.on_message_state(OrderFood.choosing_food_name)
-async def capture_food(event, fsm: FSMContext) -> None:
-    await fsm.update_data(food=event.message.content)
+async def capture_food(message: Message, fsm: FSMContext) -> None:
+    await fsm.update_data(food=message.content)
     await fsm.set_state(OrderFood.choosing_food_size)
 ```
 
@@ -166,6 +170,27 @@ Common short aliases are available for the events people write most often:
 `@router.on_reconnect()` remains the lifecycle hook for the router tree, so the Discord Gateway `RECONNECT` receive event uses `@router.on_reconnect_event()`.
 
 Discord only sends many of these events when the matching Gateway intent is present in `Bot(intents=...)`, and privileged intents such as `MESSAGE_CONTENT`, `GUILD_MEMBERS`, and `GUILD_PRESENCES` must also be enabled in the Developer Portal.
+
+Typed event payloads work with these shortcuts:
+
+```python
+from vaidcord.types import Message, PollVote, Ready
+
+
+@router.on_ready()
+async def ready(payload: Ready) -> None:
+    print(payload.user)
+
+
+@router.on_message_create()
+async def message_create(message: Message) -> None:
+    await message.answer("received")
+
+
+@router.on_message_poll_vote_add()
+async def poll_vote(vote: PollVote) -> None:
+    print(vote.message_id, vote.answer_id)
+```
 
 ## Intents and permissions
 
@@ -201,6 +226,19 @@ Common channel permissions needed by examples:
 - Thread workflows: `Create Public Threads`, `Create Private Threads`, `Send Messages in Threads`, or `Manage Threads` depending on the action.
 
 When diagnosing a bot that starts and immediately stops, check the Gateway close code first. `4013` means invalid intents; `4014` means a privileged intent was requested without the required Developer Portal toggle or approval.
+
+## REST helper boundaries
+
+`APIClient` exposes thin helpers for common Discord REST resources: messages, channels, guilds, users, invites, webhooks, application commands, and interaction responses. `Bot` mirrors the high-value helpers where a bot-facing convenience method is useful.
+
+Some Discord routes are not valid with a plain bot token:
+
+- `/users/@me/connections` requires an OAuth user access token with the matching user scope.
+- `/users/@me/applications/{application_id}/role-connection` requires OAuth application role connection scopes.
+- Group DM creation requires OAuth access tokens for the users being added.
+- Some application-command permission routes can require Bearer-token flows depending on the operation.
+
+For those routes, use the helper only with a client configured for the correct token type and scopes. Bot-token-safe methods include normal bot REST operations such as message send/edit/delete, channel metadata, guild metadata, invite fetch/delete, webhook management with bot authorization, and interaction callback/follow-up operations.
 
 ## Webhook event shortcuts
 

@@ -237,6 +237,19 @@ MOCK_UI_HTML = """<!doctype html>
     .warn {
       color: var(--yellow);
     }
+    .notice {
+      display: none;
+      margin: 0 24px 14px;
+      padding: 10px 12px;
+      border: 1px solid rgba(217, 92, 92, 0.55);
+      border-radius: 10px;
+      background: rgba(217, 92, 92, 0.13);
+      color: #ffd1d1;
+      font-size: 13px;
+    }
+    .notice.visible {
+      display: block;
+    }
     @media (max-width: 1180px) {
       .shell { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -295,6 +308,9 @@ MOCK_UI_HTML = """<!doctype html>
         </div>
       </header>
       <section class="composer">
+        <div class="field full">
+          <div class="notice" id="ui-notice" role="status"></div>
+        </div>
         <div class="field">
           <label for="channel-id">Channel ID</label>
           <input id="channel-id" value="123" aria-label="Channel ID">
@@ -429,11 +445,29 @@ MOCK_UI_HTML = """<!doctype html>
     const guildCount = document.getElementById("guild-count");
     const currentUserSelect = document.getElementById("current-user-select");
     const profileOptions = document.getElementById("profile-options");
+    const uiNotice = document.getElementById("ui-notice");
 
     function escapeHtml(value) {
       return String(value).replace(/[&<>"']/g, (char) => ({
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#039;"
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;"
       }[char]));
+    }
+
+    function showNotice(message, isError = true) {
+      uiNotice.textContent = message;
+      uiNotice.classList.toggle("visible", Boolean(message));
+      uiNotice.style.borderColor = isError ? "rgba(217, 92, 92, 0.55)" : "rgba(31, 169, 113, 0.55)";
+      uiNotice.style.background = isError ? "rgba(217, 92, 92, 0.13)" : "rgba(31, 169, 113, 0.13)";
+      uiNotice.style.color = isError ? "#ffd1d1" : "#b8ffd8";
+    }
+
+    async function apiFetch(url, options = {}) {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`${options.method || "GET"} ${url} failed with ${response.status}: ${text || response.statusText}`);
+      }
+      return response;
     }
 
     function formatProfileValue(user) {
@@ -461,8 +495,9 @@ MOCK_UI_HTML = """<!doctype html>
     }
 
     async function refresh() {
-      const response = await fetch("/api/mock/state");
+      const response = await apiFetch("/api/mock/state");
       const state = await response.json();
+      showNotice("", false);
 
       baseUrl.textContent = state.base_url;
       gatewayUrl.textContent = state.gateway_url;
@@ -582,7 +617,7 @@ MOCK_UI_HTML = """<!doctype html>
     }
 
     async function simulateMessage() {
-      await fetch("/api/mock/messages", {
+      await apiFetch("/api/mock/messages", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
@@ -602,7 +637,7 @@ MOCK_UI_HTML = """<!doctype html>
 
     async function sendBotMessage() {
       const channelId = document.getElementById("channel-id").value || "123";
-      await fetch(`/api/v10/channels/${encodeURIComponent(channelId)}/messages`, {
+      await apiFetch(`/api/v10/channels/${encodeURIComponent(channelId)}/messages`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
@@ -615,7 +650,7 @@ MOCK_UI_HTML = """<!doctype html>
 
     async function triggerTyping() {
       const channelId = document.getElementById("channel-id").value || "123";
-      await fetch(`/api/v10/channels/${encodeURIComponent(channelId)}/typing`, {
+      await apiFetch(`/api/v10/channels/${encodeURIComponent(channelId)}/typing`, {
         method: "POST"
       });
       await refresh();
@@ -623,7 +658,7 @@ MOCK_UI_HTML = """<!doctype html>
 
     async function saveChannel() {
       const channelId = document.getElementById("channel-id").value || "123";
-      await fetch(`/api/v10/channels/${encodeURIComponent(channelId)}`, {
+      await apiFetch(`/api/v10/channels/${encodeURIComponent(channelId)}`, {
         method: "PATCH",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
@@ -638,7 +673,7 @@ MOCK_UI_HTML = """<!doctype html>
       const channelId = document.getElementById("channel-id").value || "123";
       const messageId = document.getElementById("message-id").value;
       if (!messageId) return;
-      await fetch(`/api/v10/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`, {
+      await apiFetch(`/api/v10/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`, {
         method: "PATCH",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
@@ -652,7 +687,7 @@ MOCK_UI_HTML = """<!doctype html>
       const channelId = document.getElementById("channel-id").value || "123";
       const messageId = document.getElementById("message-id").value;
       if (!messageId) return;
-      await fetch(`/api/v10/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`, {
+      await apiFetch(`/api/v10/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`, {
         method: "DELETE"
       });
       document.getElementById("message-id").value = "";
@@ -661,14 +696,14 @@ MOCK_UI_HTML = """<!doctype html>
     }
 
     async function resetState() {
-      await fetch("/api/mock/reset", {method: "POST"});
+      await apiFetch("/api/mock/reset", {method: "POST"});
       document.getElementById("message-id").value = "";
       document.getElementById("message-edit-content").value = "";
       await refresh();
     }
 
     async function createProfile() {
-      const response = await fetch("/api/mock/profiles", {
+      const response = await apiFetch("/api/mock/profiles", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
@@ -687,7 +722,7 @@ MOCK_UI_HTML = """<!doctype html>
     async function saveProfile() {
       const profileId = document.getElementById("profile-id").value;
       if (!profileId) return;
-      const response = await fetch(`/api/mock/profiles/${encodeURIComponent(profileId)}`, {
+      const response = await apiFetch(`/api/mock/profiles/${encodeURIComponent(profileId)}`, {
         method: "PATCH",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
@@ -705,7 +740,7 @@ MOCK_UI_HTML = """<!doctype html>
     async function setCurrentProfile() {
       const profileId = document.getElementById("profile-id").value || parseSelectedProfileId();
       if (!profileId) return;
-      await fetch("/api/mock/current-user", {
+      await apiFetch("/api/mock/current-user", {
         method: "PATCH",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({user_id: profileId})
@@ -713,22 +748,60 @@ MOCK_UI_HTML = """<!doctype html>
       await refresh();
     }
 
-    document.getElementById("send-btn").addEventListener("click", simulateMessage);
-    document.getElementById("send-bot-btn").addEventListener("click", sendBotMessage);
-    document.getElementById("typing-btn").addEventListener("click", triggerTyping);
-    document.getElementById("save-channel-btn").addEventListener("click", saveChannel);
-    document.getElementById("edit-message-btn").addEventListener("click", editMessage);
-    document.getElementById("delete-message-btn").addEventListener("click", deleteMessage);
-    document.getElementById("create-profile-btn").addEventListener("click", createProfile);
-    document.getElementById("save-profile-btn").addEventListener("click", saveProfile);
-    document.getElementById("set-current-profile-btn").addEventListener("click", setCurrentProfile);
-    currentUserSelect.addEventListener("change", setCurrentProfile);
-    document.getElementById("refresh-btn").addEventListener("click", refresh);
-    document.getElementById("reset-btn").addEventListener("click", resetState);
+    function bindAction(id, action) {
+      document.getElementById(id).addEventListener("click", async () => {
+        try {
+          await action();
+        } catch (error) {
+          showNotice(error.message || String(error));
+          console.error(error);
+        }
+      });
+    }
 
-    refresh();
-    setInterval(refresh, 1800);
+    bindAction("send-btn", simulateMessage);
+    bindAction("send-bot-btn", sendBotMessage);
+    bindAction("typing-btn", triggerTyping);
+    bindAction("save-channel-btn", saveChannel);
+    bindAction("edit-message-btn", editMessage);
+    bindAction("delete-message-btn", deleteMessage);
+    bindAction("create-profile-btn", createProfile);
+    bindAction("save-profile-btn", saveProfile);
+    bindAction("set-current-profile-btn", setCurrentProfile);
+    currentUserSelect.addEventListener("change", async () => {
+      try {
+        await setCurrentProfile();
+      } catch (error) {
+        showNotice(error.message || String(error));
+      }
+    });
+    bindAction("refresh-btn", refresh);
+    bindAction("reset-btn", resetState);
+
+    refresh().catch((error) => showNotice(error.message || String(error)));
+    setInterval(() => refresh().catch((error) => showNotice(error.message || String(error))), 1800);
   </script>
 </body>
 </html>
 """
+
+
+def validate_mock_ui() -> None:
+    """Cheap validation for generated mock UI HTML and embedded JavaScript."""
+    if "<script>" not in MOCK_UI_HTML or "</script>" not in MOCK_UI_HTML:
+        raise ValueError("Mock UI HTML must contain one inline script block")
+    script = MOCK_UI_HTML.split("<script>", 1)[1].split("</script>", 1)[0]
+    if '""":' in script:
+        raise ValueError("Mock UI JavaScript contains an unescaped Python triple-quote artifact")
+    required_ids = (
+        "messages",
+        "requests",
+        "users",
+        "channels",
+        "guilds",
+        "typing",
+        "ui-notice",
+    )
+    for element_id in required_ids:
+        if f'id="{element_id}"' not in MOCK_UI_HTML:
+            raise ValueError(f"Mock UI is missing required element id={element_id!r}")

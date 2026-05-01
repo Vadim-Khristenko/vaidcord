@@ -70,7 +70,7 @@ class Dispatcher(Router):
         """
         self.bot = bot
         self.provide("bot", bot)
-        bot.include_router(self)
+        self._attach_to_bot(bot)
         if drop_pending_updates and hasattr(bot, "enable_drop_pending_updates"):
             bot.enable_drop_pending_updates()  # type: ignore[attr-defined]
         self._active_bots.add(bot)
@@ -84,6 +84,18 @@ class Dispatcher(Router):
             if not self._active_bots and self._started:
                 await self.shutdown()
                 self._started = False
+
+    def _attach_to_bot(self, bot: DispatcherBotProtocol) -> None:
+        routers = getattr(bot, "_routers", None)
+        if isinstance(routers, list) and self in routers:
+            return
+        if self._parent is None:
+            bot.include_router(self)
+            return
+        if isinstance(routers, list):
+            routers.append(self)
+            return
+        bot.include_router(self)
 
     async def start_websocket(
         self,

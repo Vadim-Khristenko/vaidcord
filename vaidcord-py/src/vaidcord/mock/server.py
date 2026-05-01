@@ -1,19 +1,21 @@
 from __future__ import annotations
 
-import logging
+import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from aiohttp import web
 
-from vaidcord.mock.ui import MOCK_UI_HTML
+from vaidcord.logging import get_logger
+from vaidcord.mock.ui import MOCK_UI_HTML, validate_mock_ui
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__, category="MOCK")
 
 
 def _copy_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items()}
+    return dict(payload)
 
 
 def _utc_now_iso() -> str:
@@ -41,7 +43,9 @@ class MockDiscordServer:
     _current_user: dict[str, Any] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
+        validate_mock_ui()
         self._seed_state()
+        self._app.middlewares.append(self._access_log_middleware)
         self._app.router.add_get("/", self._ui)
         self._app.router.add_get("/api/mock/state", self._mock_state)
         self._app.router.add_post("/api/mock/messages", self._mock_message)
@@ -135,10 +139,82 @@ class MockDiscordServer:
         *,
         payload: dict[str, Any] | None = None,
     ) -> None:
-        entry: dict[str, Any] = {"method": request.method, "path": str(request.rel_url)}
+        request_id = request.get("mock_request_id")
+        entry: dict[str, Any] = {
+            "method": request.method,
+            "path": str(request.rel_url),
+        }
+        if request_id is not None:
+            entry["request_id"] = str(request_id)
         if payload is not None:
             entry["json"] = payload
         self.requests.append(entry)
+
+    @web.middleware
+    async def _access_log_middleware(
+        self,
+        request: web.Request,
+        handler: Any,
+    ) -> web.StreamResponse:
+        request_id = str(uuid.uuid4())
+        request["mock_request_id"] = request_id
+        started = time.perf_counter()
+        logger.info(
+            {
+                "event": "mock.request.start",
+                "request_id": request_id,
+                "method": request.method,
+                "path": str(request.rel_url),
+            }
+        )
+        try:
+            response = await handler(request)
+        except web.HTTPException as exc:
+            self._log_request_done(
+                request_id,
+                request,
+                status=exc.status,
+                started=started,
+            )
+            raise
+        except Exception:
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
+            logger.exception(
+                {
+                    "event": "mock.request.error",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": str(request.rel_url),
+                    "duration_ms": duration_ms,
+                }
+            )
+            raise
+        self._log_request_done(
+            request_id,
+            request,
+            status=response.status,
+            started=started,
+        )
+        return response
+
+    def _log_request_done(
+        self,
+        request_id: str,
+        request: web.Request,
+        *,
+        status: int,
+        started: float,
+    ) -> None:
+        logger.info(
+            {
+                "event": "mock.request.done",
+                "request_id": request_id,
+                "method": request.method,
+                "path": str(request.rel_url),
+                "status": status,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+            }
+        )
 
     def _sync_guild_member_counts(self) -> None:
         member_count = len(self.users)
@@ -543,12 +619,27 @@ class MockDiscordServer:
         self._site = web.TCPSite(self._runner, self.host, self.port)
         await self._site.start()
         self._sync_bound_port()
-        logger.info("MockDiscordServer started on %s:%s", self.host, self.port)
+        logger.info(
+            {
+                "event": "mock.server.started",
+                "host": self.host,
+                "port": self.port,
+                "base_url": self.base_url,
+                "local_url": self.local_url,
+                "ui_enabled": self.enable_ui,
+            }
+        )
 
     async def stop(self) -> None:
         if self._runner is not None:
             await self._runner.cleanup()
-            logger.info("MockDiscordServer stopped")
+            logger.info(
+                {
+                    "event": "mock.server.stopped",
+                    "host": self.host,
+                    "port": self.port,
+                }
+            )
 
     @property
     def base_url(self) -> str:

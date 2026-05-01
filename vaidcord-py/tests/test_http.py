@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
+import aiohttp
 import pytest
 
+from vaidcord.errors import ForbiddenError, RateLimitError
 from vaidcord.http import DiscordError, HTTPClient, HTTPConfig
 from vaidcord.metadata import __version__
 
@@ -50,3 +53,92 @@ def test_http_config_uses_library_metadata_headers() -> None:
     assert f"vaidcord/{__version__}" in client.headers["User-Agent"]
     assert "Python/" in client.headers["User-Agent"]
     assert client.headers["X-VaidCord-Version"] == __version__
+    assert "Content-Type" not in client.headers
+
+
+@pytest.mark.asyncio
+async def test_http_request_keeps_aiohttp_json_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+    client = HTTPClient(HTTPConfig(token="token"))
+
+    async def fake_request_with_retry(
+        method: str,
+        endpoint: str,
+        request_id: str,
+        **kwargs: Any,
+    ):
+        captured.update(kwargs)
+        from vaidcord.http import HTTPResponseData
+
+        return HTTPResponseData(status=204, headers={}, body=b"")
+
+    monkeypatch.setattr(client, "_request_with_retry", fake_request_with_retry)
+
+    await client.request("POST", "/channels/1/messages", json={"content": "hello"})
+
+    assert captured["json"] == {"content": "hello"}
+    assert "data" not in captured
+
+
+@pytest.mark.asyncio
+async def test_http_request_maps_errors_to_vaidcord_hierarchy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vaidcord.http import HTTPResponseData
+
+    client = HTTPClient(HTTPConfig(token="token"))
+
+    async def forbidden(*args: Any, **kwargs: Any) -> HTTPResponseData:
+        return HTTPResponseData(
+            status=403,
+            headers={},
+            body=b'{"code":50013,"message":"Missing Permissions"}',
+        )
+
+    monkeypatch.setattr(client, "_request_with_retry", forbidden)
+    with pytest.raises(ForbiddenError):
+        await client.request("GET", "/forbidden")
+
+    async def limited(*args: Any, **kwargs: Any) -> HTTPResponseData:
+        return HTTPResponseData(
+            status=429,
+            headers={},
+            body=b'{"message":"rate limited","retry_after":1.5,"global":true}',
+        )
+
+    monkeypatch.setattr(client, "_request_with_retry", limited)
+    with pytest.raises(RateLimitError) as exc_info:
+        await client.request("GET", "/limited")
+
+    assert exc_info.value.retry_after == 1.5
+    assert exc_info.value.global_limit is True
+
+
+@pytest.mark.asyncio
+async def test_upload_file_uses_multipart_without_json_content_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    client = HTTPClient(HTTPConfig(token="token"))
+
+    async def fake_request(
+        method: str,
+        endpoint: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        captured.update({"method": method, "endpoint": endpoint, **kwargs})
+        return {"ok": True}
+
+    monkeypatch.setattr(client, "request", fake_request)
+
+    result = await client.upload_file(
+        "/channels/1/messages",
+        b"hello",
+        "hello.txt",
+        payload_json={"content": "file"},
+    )
+
+    assert result == {"ok": True}
+    assert captured["method"] == "POST"
+    assert isinstance(captured["data"], aiohttp.FormData)
+    assert "Content-Type" not in client.headers

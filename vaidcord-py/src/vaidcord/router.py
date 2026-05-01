@@ -8,10 +8,11 @@ bot handlers into modular components.
 from __future__ import annotations
 
 import inspect
+import types
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
 
 from vaidcord.filters import (
     CommandFilter,
@@ -49,6 +50,7 @@ class HandlerConfig:
     filters: list[Filter] = field(default_factory=list)
     priority: int = 0
     accepted_kwargs: set[str] = field(default_factory=set)
+    accepted_annotations: dict[str, Any] = field(default_factory=dict)
     pass_event: bool = True
 
 
@@ -86,7 +88,7 @@ class Router:
 
         @router.on_message()
         async def handle_message(event: Event):
-            await event.message.channel.send("Hello!")
+            await event.message.answer("Hello!")
     """
 
     def __init__(self, name: str | None = None) -> None:
@@ -140,13 +142,14 @@ class Router:
             priority: Handler priority (higher = executed first)
         """
         resolved_types = self._resolve_event_types(*event_types)
-        accepted_kwargs, pass_event = self._inspect_handler_signature(handler)
+        accepted_kwargs, accepted_annotations, pass_event = self._inspect_handler_signature(handler)
         config = HandlerConfig(
             handler=handler,
             event_types=resolved_types,
             filters=filters or [],
             priority=priority,
             accepted_kwargs=accepted_kwargs,
+            accepted_annotations=accepted_annotations,
             pass_event=pass_event,
         )
 
@@ -724,17 +727,22 @@ class Router:
         return deps
 
     @staticmethod
-    def _inspect_handler_signature(handler: EventHandler) -> tuple[set[str], bool]:
+    def _inspect_handler_signature(handler: EventHandler) -> tuple[set[str], dict[str, Any], bool]:
         signature = inspect.signature(handler)
+        try:
+            type_hints = get_type_hints(handler)
+        except Exception:
+            type_hints = {}
         accepted: set[str] = set()
+        annotations: dict[str, Any] = {}
         pass_event = False
         first_positional = True
         for name, param in signature.parameters.items():
+            annotation = type_hints.get(name, param.annotation)
             if first_positional and param.kind in {
                 inspect.Parameter.POSITIONAL_ONLY,
                 inspect.Parameter.POSITIONAL_OR_KEYWORD,
             }:
-                annotation = param.annotation
                 if name in {"event", "_event"} or annotation is Event or annotation == "Event":
                     pass_event = True
                     first_positional = False
@@ -744,20 +752,51 @@ class Router:
                 continue
             if param.kind in {inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY}:
                 accepted.add(name)
-        return accepted, pass_event
+                if annotation is not inspect.Parameter.empty:
+                    annotations[name] = annotation
+        return accepted, annotations, pass_event
+
+    @staticmethod
+    def _matches_annotation(value: Any, annotation: Any) -> bool:
+        if annotation in {Any, inspect.Parameter.empty, None}:
+            return False
+        origin = get_origin(annotation)
+        if origin in {types.UnionType, Union}:
+            return any(Router._matches_annotation(value, arg) for arg in get_args(annotation))
+        if origin is not None:
+            annotation = origin
+        if isinstance(annotation, str):
+            return False
+        try:
+            return isinstance(value, annotation)
+        except TypeError:
+            return False
 
     def _build_handler_kwargs(
         self,
         *,
         dependencies: Mapping[str, Any],
+        context_data: Mapping[str, Any],
         filter_data: Mapping[str, Any],
         accepted_kwargs: set[str],
+        accepted_annotations: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create deterministic kwargs map for DI-style handler invocation."""
-        full_kwargs = {**dependencies, **filter_data}
+        full_kwargs = {**dependencies, **context_data, **filter_data}
         if not accepted_kwargs:
             return {}
-        return {name: value for name, value in full_kwargs.items() if name in accepted_kwargs}
+        kwargs = {name: value for name, value in full_kwargs.items() if name in accepted_kwargs}
+        annotations = accepted_annotations or {}
+        injectable_values = list(full_kwargs.values())
+        for name in accepted_kwargs:
+            if name in kwargs:
+                continue
+            annotation = annotations.get(name)
+            for value in injectable_values:
+                if self._matches_annotation(value, annotation):
+                    kwargs[name] = value
+                    break
+        return kwargs
 
     def on_startup(self) -> Callable[[LifecycleHandler], LifecycleHandler]:
         def decorator(handler: LifecycleHandler) -> LifecycleHandler:
@@ -1036,6 +1075,28 @@ class Router:
         dependencies = self._resolve_dependencies()
         if dependencies:
             event.context.update(dependencies)
+        if event.bot is not None:
+            event.context["bot"] = event.bot
+        event.context.setdefault("event", event)
+        for name in (
+            "message",
+            "user",
+            "guild",
+            "channel",
+            "interaction",
+            "object",
+            "payload",
+            "ready",
+            "resume",
+            "deleted_message",
+            "deleted_messages",
+            "reaction",
+            "typing",
+            "poll_vote",
+        ):
+            value = getattr(event, name, None)
+            if value is not None:
+                event.context.setdefault(name, value)
 
         async def _inner(current_event: Event) -> EventHandlerResult:
             result = None
@@ -1069,8 +1130,14 @@ class Router:
                         local_event.context.setdefault("filter_data", {}).update(filter_data)
                     accepted_kwargs = self._build_handler_kwargs(
                         dependencies=self._resolve_dependencies(),
+                        context_data={
+                            key: value
+                            for key, value in local_event.context.items()
+                            if key != "filter_data"
+                        },
                         filter_data=local_event.context.get("filter_data", {}),
                         accepted_kwargs=handler_config.accepted_kwargs,
+                        accepted_annotations=handler_config.accepted_annotations,
                     )
                     if handler_config.pass_event:
                         return await handler_config.handler(local_event, **accepted_kwargs)
