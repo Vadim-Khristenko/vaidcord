@@ -32,7 +32,7 @@ class Dispatcher(Router):
         self.bot = bot
         resolved_storage = storage or MemoryFSMStorage()
         self.fsm = fsm or FSMMiddleware(storage=resolved_storage)
-        self.add_middleware(self.fsm)
+        self.add_outer_middleware(self.fsm)
         self._active_bots: set[DispatcherBotProtocol] = set()
         self._started = False
         if bot is not None:
@@ -40,7 +40,7 @@ class Dispatcher(Router):
 
     def setup_fsm(self, fsm: FSMMiddleware) -> None:
         self.fsm = fsm
-        self.add_middleware(fsm)
+        self.add_outer_middleware(fsm)
 
     async def startup(self) -> None:
         await self.emit_startup()
