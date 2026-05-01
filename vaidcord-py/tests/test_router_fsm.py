@@ -143,7 +143,7 @@ async def test_parent_middlewares_apply_to_child_handlers() -> None:
 async def test_fsm_middleware_builds_multi_scope_contexts() -> None:
     storage = MemoryFSMStorage()
     router = Router(name="fsm")
-    router.add_middleware(FSMMiddleware(storage=storage))
+    router.add_outer_middleware(FSMMiddleware(storage=storage))
     captured_context: dict[str, Any] = {}
 
     @router.on_message()
@@ -165,7 +165,7 @@ async def test_fsm_middleware_builds_multi_scope_contexts() -> None:
 async def test_fsm_state_filter_works_for_member_and_channel_scopes() -> None:
     storage = MemoryFSMStorage()
     router = Router(name="fsm")
-    router.add_middleware(FSMMiddleware(storage=storage))
+    router.add_outer_middleware(FSMMiddleware(storage=storage))
     captured: list[str] = []
 
     await storage.set_state(StorageKey.member(guild_id=500, user_id=100), "member:step")
@@ -280,7 +280,7 @@ async def test_dispatcher_include_routers_and_start_polling(monkeypatch: pytest.
 async def test_dispatcher_auto_registers_fsm_middleware() -> None:
     dp = Dispatcher()
     assert dp.fsm is not None
-    assert any(config.middleware is dp.fsm for config in dp._middlewares)
+    assert any(config.middleware is dp.fsm for config in dp._outer_middlewares)
 
 
 @pytest.mark.asyncio
@@ -308,3 +308,214 @@ def test_dispatcher_cannot_include_dispatcher() -> None:
     child = Dispatcher()
     with pytest.raises(ValueError):
         root.include_router(child)
+
+
+@pytest.mark.asyncio
+async def test_outer_middleware_runs_before_filter_resolution() -> None:
+    router = Router()
+    seen: list[str] = []
+
+    @router.outer_middleware(priority=100)
+    async def gate(event: Event, next_handler):
+        event.context["allowed"] = True
+        seen.append("outer")
+        return await next_handler(event)
+
+    @router.on_message(lambda event: event.context.get("allowed") is True)
+    async def handler(_event: Event) -> None:
+        seen.append("handler")
+
+    await router.propagate_event(_message_event(content="hello"))
+    assert seen == ["outer", "handler"]
+
+
+@pytest.mark.asyncio
+async def test_middleware_layer_registration_alias() -> None:
+    router = Router()
+    hits: list[str] = []
+
+    @router.middleware(layer="outer", priority=10)
+    async def outer(event: Event, next_handler):
+        hits.append("outer")
+        return await next_handler(event)
+
+    @router.on_message()
+    async def handler(_event: Event) -> None:
+        hits.append("handler")
+
+    await router.propagate_event(_message_event(content="x"))
+    assert hits == ["outer", "handler"]
+
+
+@pytest.mark.asyncio
+async def test_stop_propagation_helper_drops_event() -> None:
+    router = Router()
+    hits: list[str] = []
+
+    @router.outer_middleware()
+    async def dropper(event: Event, next_handler):
+        _ = next_handler
+        Router.stop_propagation()
+
+    @router.on_message()
+    async def handler(_event: Event) -> None:
+        hits.append("handler")
+
+    result = await router.propagate_event(_message_event(content="x"))
+    assert result is None
+    assert hits == []
+
+
+@pytest.mark.asyncio
+async def test_class_based_middlewares_can_be_chained() -> None:
+    from vaidcord.middleware import BaseMiddleware
+
+    router = Router()
+    trace: list[str] = []
+
+    class OuterA(BaseMiddleware):
+        async def __call__(self, handler, event, data):
+            trace.append("A:before")
+            data["a"] = True
+            result = await handler(event, data)
+            trace.append("A:after")
+            return result
+
+    class OuterB(BaseMiddleware):
+        async def __call__(self, handler, event, data):
+            trace.append("B:before")
+            data["b"] = True
+            result = await handler(event, data)
+            trace.append("B:after")
+            return result
+
+    router.add_outer_middleware(OuterA(), priority=20)
+    router.add_outer_middleware(OuterB(), priority=10)
+
+    @router.on_message(lambda event: event.context.get("a") and event.context.get("b"))
+    async def handler(_event: Event) -> None:
+        trace.append("handler")
+
+    await router.propagate_event(_message_event(content="ok"))
+    assert trace == ["A:before", "B:before", "handler", "B:after", "A:after"]
+
+
+@pytest.mark.asyncio
+async def test_new_event_shortcut_decorators_register_and_dispatch() -> None:
+    router = Router()
+    hits: list[str] = []
+
+    @router.on_hello()
+    async def on_hello(_event: Event) -> None:
+        hits.append("hello")
+
+    @router.on_ready()
+    async def on_ready(_event: Event) -> None:
+        hits.append("ready")
+
+    @router.on_resume()
+    async def on_resume(_event: Event) -> None:
+        hits.append("resume")
+
+    @router.on_update_message()
+    async def on_update(_event: Event) -> None:
+        hits.append("update")
+
+    @router.on_delete_message()
+    async def on_delete(_event: Event) -> None:
+        hits.append("delete")
+
+    @router.on_delete_message_many()
+    async def on_delete_many(_event: Event) -> None:
+        hits.append("delete_many")
+
+    @router.on_reaction()
+    async def on_reaction(_event: Event) -> None:
+        hits.append("reaction")
+
+    @router.on_delete_reaction()
+    async def on_delete_reaction(_event: Event) -> None:
+        hits.append("reaction_delete")
+
+    @router.on_delete_all_reaction()
+    async def on_delete_all(_event: Event) -> None:
+        hits.append("reaction_delete_all")
+
+    @router.on_delete_emoji_for_reaction()
+    async def on_delete_emoji(_event: Event) -> None:
+        hits.append("reaction_delete_emoji")
+
+    for event_type in [
+        EventType.HELLO,
+        EventType.READY,
+        EventType.RESUMED,
+        EventType.MESSAGE_UPDATE,
+        EventType.MESSAGE_DELETE,
+        EventType.MESSAGE_DELETE_BULK,
+        EventType.REACTION_ADD,
+        EventType.REACTION_REMOVE,
+        EventType.MESSAGE_REACTION_REMOVE_ALL,
+        EventType.MESSAGE_REACTION_REMOVE_EMOJI,
+    ]:
+        await router.propagate_event(Event(type=event_type, data={}))
+
+    assert hits == [
+        "hello",
+        "ready",
+        "resume",
+        "update",
+        "delete",
+        "delete_many",
+        "reaction",
+        "reaction_delete",
+        "reaction_delete_all",
+        "reaction_delete_emoji",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_gateway_event_name_shortcut_and_reconnect_helpers() -> None:
+    router = Router()
+    hits: list[str] = []
+
+    @router.on_gateway_event("RECONNECT")
+    async def reconnect_by_name(_event: Event) -> None:
+        hits.append("reconnect_name")
+
+    @router.on_reconnect()
+    async def reconnect_by_shortcut(_event: Event) -> None:
+        hits.append("reconnect_shortcut")
+
+    @router.on_invalid_session()
+    async def invalid(_event: Event) -> None:
+        hits.append("invalid")
+
+    @router.on_rate_limited()
+    async def rate(_event: Event) -> None:
+        hits.append("rate")
+
+    @router.on_message_poll_vote_add()
+    async def poll_add(_event: Event) -> None:
+        hits.append("poll_add")
+
+    @router.on_message_poll_vote_remove()
+    async def poll_remove(_event: Event) -> None:
+        hits.append("poll_remove")
+
+    for event_type in [
+        EventType.RECONNECT,
+        EventType.INVALID_SESSION,
+        EventType.RATE_LIMITED,
+        EventType.MESSAGE_POLL_VOTE_ADD,
+        EventType.MESSAGE_POLL_VOTE_REMOVE,
+    ]:
+        await router.propagate_event(Event(type=event_type, data={}))
+
+    assert hits == [
+        "reconnect_name",
+        "reconnect_shortcut",
+        "invalid",
+        "rate",
+        "poll_add",
+        "poll_remove",
+    ]

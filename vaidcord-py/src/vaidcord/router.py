@@ -22,6 +22,7 @@ from vaidcord.filters import (
     as_filter,
     run_filter_with_data,
 )
+from vaidcord.middleware import BaseMiddleware
 from vaidcord.types import ChannelType, Event, EventType
 from vaidcord.typing import (
     EventHandler,
@@ -66,6 +67,10 @@ class RouterFilterConfig:
     event_types: list[EventType] | None = None
 
 
+class StopPropagation(Exception):
+    """Signal to stop event propagation from middleware or handlers."""
+
+
 class Router:
     """
     Router for organizing bot handlers.
@@ -87,6 +92,7 @@ class Router:
         self._routers: list[Router] = []
         self._parent: Router | None = None
         self._middlewares: list[MiddlewareConfig] = []
+        self._outer_middlewares: list[MiddlewareConfig] = []
         self._router_filters: list[RouterFilterConfig] = []
         self._dependencies: dict[str, Any] = {}
         self._startup_handlers: list[LifecycleHandler] = []
@@ -250,6 +256,53 @@ class Router:
             return handler
 
         return decorator
+
+
+    def on_gateway_event(
+        self,
+        event_name: str,
+        *filters: Filter,
+        priority: int = 0,
+    ) -> Callable[[EventHandler], EventHandler]:
+        return self.on_event(event_name, filters=list(filters), priority=priority)
+
+    def _event_shortcut(
+        self,
+        event_type: EventType,
+        *filters: Filter,
+        priority: int = 0,
+    ) -> Callable[[EventHandler], EventHandler]:
+        return self.on_event(event_type, filters=list(filters), priority=priority)
+
+    def on_hello(self, *filters: Filter, priority: int = 0) -> Callable[[EventHandler], EventHandler]:
+        return self._event_shortcut(EventType.HELLO, *filters, priority=priority)
+
+    def on_ready(self, *filters: Filter, priority: int = 0) -> Callable[[EventHandler], EventHandler]:
+        return self._event_shortcut(EventType.READY, *filters, priority=priority)
+
+    def on_resume(self, *filters: Filter, priority: int = 0) -> Callable[[EventHandler], EventHandler]:
+        return self._event_shortcut(EventType.RESUMED, *filters, priority=priority)
+
+    def on_update_message(self, *filters: Filter, priority: int = 0) -> Callable[[EventHandler], EventHandler]:
+        return self._event_shortcut(EventType.MESSAGE_UPDATE, *filters, priority=priority)
+
+    def on_delete_message(self, *filters: Filter, priority: int = 0) -> Callable[[EventHandler], EventHandler]:
+        return self._event_shortcut(EventType.MESSAGE_DELETE, *filters, priority=priority)
+
+    def on_delete_message_many(self, *filters: Filter, priority: int = 0) -> Callable[[EventHandler], EventHandler]:
+        return self._event_shortcut(EventType.MESSAGE_DELETE_BULK, *filters, priority=priority)
+
+    def on_reaction(self, *filters: Filter, priority: int = 0) -> Callable[[EventHandler], EventHandler]:
+        return self._event_shortcut(EventType.REACTION_ADD, *filters, priority=priority)
+
+    def on_delete_reaction(self, *filters: Filter, priority: int = 0) -> Callable[[EventHandler], EventHandler]:
+        return self._event_shortcut(EventType.REACTION_REMOVE, *filters, priority=priority)
+
+    def on_delete_all_reaction(self, *filters: Filter, priority: int = 0) -> Callable[[EventHandler], EventHandler]:
+        return self._event_shortcut(EventType.MESSAGE_REACTION_REMOVE_ALL, *filters, priority=priority)
+
+    def on_delete_emoji_for_reaction(self, *filters: Filter, priority: int = 0) -> Callable[[EventHandler], EventHandler]:
+        return self._event_shortcut(EventType.MESSAGE_REACTION_REMOVE_EMOJI, *filters, priority=priority)
 
     def on_command(
         self,
@@ -451,6 +504,39 @@ class Router:
             if item.event_types is None or event_type in item.event_types
         ]
 
+    def register_middleware(
+        self,
+        middleware: Middleware,
+        *,
+        layer: str = "inner",
+        priority: int = 0,
+        event_types: list[EventType] | None = None,
+    ) -> None:
+        if layer not in {"inner", "outer"}:
+            raise ValueError("layer must be 'inner' or 'outer'")
+        if layer == "outer":
+            self.add_outer_middleware(middleware, priority=priority, event_types=event_types)
+            return
+        self.add_middleware(middleware, priority=priority, event_types=event_types)
+
+    def middleware_layer(
+        self,
+        *,
+        layer: str = "inner",
+        priority: int = 0,
+        event_types: list[EventType] | None = None,
+    ) -> Callable[[Middleware], Middleware]:
+        def decorator(middleware: Middleware) -> Middleware:
+            self.register_middleware(
+                middleware,
+                layer=layer,
+                priority=priority,
+                event_types=event_types,
+            )
+            return middleware
+
+        return decorator
+
     def add_middleware(
         self,
         middleware: Middleware,
@@ -472,11 +558,46 @@ class Router:
         *,
         priority: int = 0,
         event_types: list[EventType] | None = None,
+        layer: str = "inner",
     ) -> Callable[[Middleware], Middleware]:
-        """Decorator to register middleware."""
+        """Decorator to register middleware for selected layer."""
 
         def decorator(middleware: Middleware) -> Middleware:
-            self.add_middleware(
+            self.register_middleware(
+                middleware,
+                layer=layer,
+                priority=priority,
+                event_types=event_types,
+            )
+            return middleware
+
+        return decorator
+
+
+    def add_outer_middleware(
+        self,
+        middleware: Middleware,
+        *,
+        priority: int = 0,
+        event_types: list[EventType] | None = None,
+    ) -> None:
+        """Register an outer middleware (runs before filter checks)."""
+        config = MiddlewareConfig(
+            middleware=middleware,
+            priority=priority,
+            event_types=event_types,
+        )
+        self._outer_middlewares.append(config)
+        self._outer_middlewares.sort(key=lambda item: item.priority, reverse=True)
+
+    def outer_middleware(
+        self,
+        *,
+        priority: int = 0,
+        event_types: list[EventType] | None = None,
+    ) -> Callable[[Middleware], Middleware]:
+        def decorator(middleware: Middleware) -> Middleware:
+            self.add_outer_middleware(
                 middleware,
                 priority=priority,
                 event_types=event_types,
@@ -484,6 +605,55 @@ class Router:
             return middleware
 
         return decorator
+
+    def _resolve_outer_middleware_configs(
+        self, event_type: EventType
+    ) -> list[MiddlewareConfig]:
+        chain: list[MiddlewareConfig] = []
+        if self._parent is not None:
+            chain.extend(self._parent._resolve_outer_middleware_configs(event_type))
+        chain.extend(self._outer_middlewares)
+        return [
+            item
+            for item in chain
+            if item.event_types is None or event_type in item.event_types
+        ]
+
+    def _resolve_outer_middleware_chain(self, event_type: EventType) -> list[Middleware]:
+        configs = self._resolve_outer_middleware_configs(event_type)
+        return [item.middleware for item in configs]
+
+    async def _invoke_middleware(
+        self,
+        middleware: Middleware,
+        event: Event,
+        next_handler: NextHandler,
+    ) -> EventHandlerResult:
+        if isinstance(middleware, BaseMiddleware):
+            async def aiogram_handler(inner_event: Event, _data: dict[str, Any]) -> EventHandlerResult:
+                return await next_handler(inner_event)
+
+            return await middleware(aiogram_handler, event, event.context)
+
+        return await middleware(event, next_handler)
+
+    async def _execute_outer_middlewares(
+        self,
+        event: Event,
+        handler: EventHandler,
+    ) -> EventHandlerResult:
+        async def call(index: int, current_event: Event) -> EventHandlerResult:
+            if index >= len(chain):
+                return await handler(current_event)
+            middleware = chain[index]
+            next_handler: NextHandler = lambda next_event: call(index + 1, next_event)
+            try:
+                return await self._invoke_middleware(middleware, current_event, next_handler)
+            except StopPropagation:
+                return None
+
+        chain = self._resolve_outer_middleware_chain(event.type)
+        return await call(0, event)
 
     def _resolve_middleware_configs(
         self, event_type: EventType
@@ -512,68 +682,56 @@ class Router:
                 return await handler(current_event)
             middleware = chain[index]
             next_handler: NextHandler = lambda next_event: call(index + 1, next_event)
-            return await middleware(current_event, next_handler)
+            try:
+                return await self._invoke_middleware(middleware, current_event, next_handler)
+            except StopPropagation:
+                return None
 
         chain = self._resolve_middleware_chain(event.type)
         return await call(0, event)
 
     async def propagate_event(self, event: Event) -> EventHandlerResult:
-        """
-        Propagate an event through all registered handlers.
+        async def _inner(current_event: Event) -> EventHandlerResult:
+            result = None
+            skipped = object()
 
-        This method is called by the Dispatcher to process events.
+            for router in self._routers:
+                router_result = await router.propagate_event(current_event)
+                if router_result is not None:
+                    result = router_result
 
-        Args:
-            event: The event to process
-
-        Returns:
-            The result of the last executed handler, or None
-        """
-        result = None
-        skipped = object()
-
-        # Process handlers from child routers first
-        for router in self._routers:
-            router_result = await router.propagate_event(event)
-            if router_result is not None:
-                result = router_result
-
-        # Process handlers in this router
-        handlers = self._handlers.get(event.type, [])
-        router_filters = [
-            item.filter_obj for item in self._resolve_router_filter_configs(event.type)
-        ]
-        for config in handlers:
-            async def guarded_handler(current_event: Event) -> EventHandlerResult:
-                filter_data: FilterDataMap = {}
-                for filter_func in [*router_filters, *config.filters]:
-                    try:
-                        passed, data = await run_filter_with_data(filter_func, current_event)
-                        if data:
-                            filter_data.update(data)
-                        if not passed:
+            handlers = self._handlers.get(current_event.type, [])
+            router_filters = [
+                item.filter_obj for item in self._resolve_router_filter_configs(current_event.type)
+            ]
+            for config in handlers:
+                async def guarded_handler(local_event: Event) -> EventHandlerResult:
+                    filter_data: FilterDataMap = {}
+                    for filter_func in [*router_filters, *config.filters]:
+                        try:
+                            passed, data = await run_filter_with_data(filter_func, local_event)
+                            if data:
+                                filter_data.update(data)
+                            if not passed:
+                                return skipped
+                        except Exception:
                             return skipped
-                    except Exception:
-                        return skipped
-                if filter_data:
-                    current_event.context.setdefault("filter_data", {}).update(filter_data)
-                accepted_kwargs = self._build_handler_kwargs(
-                    dependencies=self._resolve_dependencies(),
-                    filter_data=current_event.context.get("filter_data", {}),
-                    accepted_kwargs=config.accepted_kwargs,
-                )
-                return await config.handler(current_event, **accepted_kwargs)
+                    if filter_data:
+                        local_event.context.setdefault("filter_data", {}).update(filter_data)
+                    accepted_kwargs = self._build_handler_kwargs(
+                        dependencies=self._resolve_dependencies(),
+                        filter_data=local_event.context.get("filter_data", {}),
+                        accepted_kwargs=config.accepted_kwargs,
+                    )
+                    return await config.handler(local_event, **accepted_kwargs)
 
-            try:
-                current_result = await self._execute_with_middlewares(event, guarded_handler)
+                current_result = await self._execute_with_middlewares(current_event, guarded_handler)
                 if current_result is not skipped:
                     result = current_result
-            except Exception as e:
-                # In production, you'd want to log this properly
-                print(f"Error in handler {config.handler.__name__}: {e}")
-                raise
 
-        return result
+            return result
+
+        return await self._execute_outer_middlewares(event, _inner)
 
     def get_handlers(self, event_type: EventType) -> list[HandlerConfig]:
         """Get all handlers for a specific event type."""
@@ -615,6 +773,11 @@ class Router:
     async def check_filter(event: Event, filter_obj: Filter) -> bool:
         """Utility for middlewares: evaluate any filter type against an event."""
         return await as_filter(filter_obj)(event)
+
+    @staticmethod
+    def stop_propagation() -> None:
+        """Raise StopPropagation from middleware/handler to drop event."""
+        raise StopPropagation
 
     def on_message_state(
         self,

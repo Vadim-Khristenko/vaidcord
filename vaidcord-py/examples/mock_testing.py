@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-from vaidcord import F, MockBot, create_mock_event
+from vaidcord import MockBot, create_mock_event
+from vaidcord.filters import CommandFilter, F
 from vaidcord.mock import MockHTTPResponse, MockSettings
 
 
@@ -12,7 +13,7 @@ async def main() -> None:
     bot = MockBot(settings=MockSettings(auto_ready_event=False))
     seen_messages: list[str] = []
 
-    @bot.on_message(F.message.content.startswith("/ping"))
+    @bot.on_message(CommandFilter(("ping",)) & F.message.content.contains("ping"))
     async def ping(event) -> None:
         seen_messages.append(event.message.content)
 
