@@ -391,6 +391,12 @@ class Bot(Router):
             if ts_str
             else datetime.now()
         )
+        edited_ts_str = data.get("edited_timestamp")
+        edited_timestamp = (
+            datetime.fromisoformat(edited_ts_str.replace("Z", "+00:00"))
+            if edited_ts_str
+            else None
+        )
 
         # Parse channel
         channel_id = int(data["channel_id"])
@@ -416,6 +422,7 @@ class Bot(Router):
             author=author,
             content=data.get("content", ""),
             timestamp=timestamp,
+            edited_timestamp=edited_timestamp,
             tts=data.get("tts", False),
             mention_everyone=data.get("mention_everyone", False),
             mentions=mentions,
@@ -646,6 +653,39 @@ class Bot(Router):
         """Trigger a typing indicator in a channel."""
         await self.api_client.trigger_typing(channel_id)
 
+    async def list_messages(
+        self,
+        channel_id: int,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+        after: int | None = None,
+        around: int | None = None,
+    ) -> list[Message]:
+        """List and parse messages for a channel."""
+        items = await self.api_client.list_messages(
+            channel_id,
+            limit=limit,
+            before=before,
+            after=after,
+            around=around,
+        )
+        return [self._parse_message(item) for item in items]
+
+    async def fetch_message(self, channel_id: int, message_id: int) -> Message:
+        """Fetch and parse a single message from a channel."""
+        data = await self.api_client.fetch_message(channel_id, message_id)
+        return self._parse_message(data)
+
+    async def edit_message(self, channel_id: int, message_id: int, **payload: Any) -> Message:
+        """Edit a previously sent message."""
+        data = await self.api_client.edit_message(channel_id, message_id, payload)
+        return self._parse_message(data)
+
+    async def delete_message(self, channel_id: int, message_id: int) -> dict[str, Any]:
+        """Delete a message and clear it from the local cache path if present."""
+        return await self.api_client.delete_message(channel_id, message_id)
+
     async def delete_webhook(self, *, drop_pending_updates: bool = False) -> dict[str, Any]:
         """Compatibility helper for aiogram-like startup flows."""
         if "discord.com/api" in self.config.base_url:
@@ -708,12 +748,33 @@ class Bot(Router):
         self._channels[channel.id] = channel
         return channel
 
+    async def modify_channel(self, channel_id: int, **payload: Any) -> Channel:
+        """Modify and parse a channel from the API."""
+        data = await self.api_client.modify_channel(channel_id, payload)
+        channel = self._parse_channel(data)
+        self._channels[channel.id] = channel
+        return channel
+
+    async def delete_channel(self, channel_id: int) -> dict[str, Any]:
+        """Delete a channel and clear it from the local cache."""
+        result = await self.api_client.delete_channel(channel_id)
+        self._channels.pop(channel_id, None)
+        return result
+
     async def fetch_guild(self, guild_id: int) -> Guild:
         """Fetch and parse a guild from the API."""
         data = await self.api_client.fetch_guild(guild_id)
         guild = self._parse_guild(data)
         self._guilds[guild.id] = guild
         return guild
+
+    async def list_guild_channels(self, guild_id: int) -> list[Channel]:
+        """List and parse guild channels from the API."""
+        items = await self.api_client.list_guild_channels(guild_id)
+        channels = [self._parse_channel(item) for item in items]
+        for channel in channels:
+            self._channels[channel.id] = channel
+        return channels
 
     async def fetch_user(self, user_id: int) -> User:
         """Fetch and parse a user from the API."""

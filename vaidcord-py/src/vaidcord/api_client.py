@@ -42,14 +42,58 @@ class APIClient:
     async def send_message(self, channel_id: int, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.post(f"/channels/{channel_id}/messages", json=payload)
 
+    async def list_messages(
+        self,
+        channel_id: int,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+        after: int | None = None,
+        around: int | None = None,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"limit": limit}
+        if before is not None:
+            params["before"] = before
+        if after is not None:
+            params["after"] = after
+        if around is not None:
+            params["around"] = around
+        return await self.get(f"/channels/{channel_id}/messages", params=params)  # type: ignore[return-value]
+
+    async def fetch_message(self, channel_id: int, message_id: int) -> dict[str, Any]:
+        return await self.get(f"/channels/{channel_id}/messages/{message_id}")
+
+    async def edit_message(
+        self,
+        channel_id: int,
+        message_id: int,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self.patch(
+            f"/channels/{channel_id}/messages/{message_id}",
+            json=payload,
+        )
+
+    async def delete_message(self, channel_id: int, message_id: int) -> dict[str, Any]:
+        return await self.delete(f"/channels/{channel_id}/messages/{message_id}")
+
     async def trigger_typing(self, channel_id: int) -> dict[str, Any]:
         return await self.post(f"/channels/{channel_id}/typing")
 
     async def fetch_channel(self, channel_id: int) -> dict[str, Any]:
         return await self.get(f"/channels/{channel_id}")
 
+    async def modify_channel(self, channel_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.patch(f"/channels/{channel_id}", json=payload)
+
+    async def delete_channel(self, channel_id: int) -> dict[str, Any]:
+        return await self.delete(f"/channels/{channel_id}")
+
     async def fetch_guild(self, guild_id: int) -> dict[str, Any]:
         return await self.get(f"/guilds/{guild_id}")
+
+    async def list_guild_channels(self, guild_id: int) -> list[dict[str, Any]]:
+        return await self.get(f"/guilds/{guild_id}/channels")  # type: ignore[return-value]
 
     async def fetch_user(self, user_id: int) -> dict[str, Any]:
         return await self.get(f"/users/{user_id}")
