@@ -1,11 +1,15 @@
 """Tests for bot lifecycle and convenience API."""
 
 from datetime import datetime
+from typing import Any, cast
 
 import pytest
 
 from vaidcord.bot import Bot, BotState, GatewayIntent
 from vaidcord.errors import DiscordAPIError, ForbiddenError
+from vaidcord.gateway_runtime import GatewayRuntime
+from vaidcord.logging import get_default_bot_id, set_default_bot_id
+from vaidcord.metadata import __version__
 from vaidcord.types import Channel, ChannelType, Message, User
 
 
@@ -14,18 +18,23 @@ async def test_ready_sets_user_and_state() -> None:
     """READY event should set bot.user and state."""
     bot = Bot(token="test-token")
 
-    await bot._handle_ready(
-        {
-            "user": {"id": "42", "username": "vaidcord-bot", "discriminator": "0"},
-            "guilds": [],
-            "session_id": "abc",
-        }
-    )
+    try:
+        set_default_bot_id(None)
+        await bot._handle_ready(
+            {
+                "user": {"id": "42", "username": "vaidcord-bot", "discriminator": "0"},
+                "guilds": [],
+                "session_id": "abc",
+            }
+        )
 
-    assert bot.user is not None
-    assert bot.user.id == 42
-    assert bot.state == BotState.READY
-    assert bot.is_ready
+        assert bot.user is not None
+        assert bot.user.id == 42
+        assert bot.state == BotState.READY
+        assert bot.is_ready
+        assert get_default_bot_id() == "42"
+    finally:
+        set_default_bot_id(None)
 
 
 @pytest.mark.asyncio
@@ -51,6 +60,38 @@ async def test_send_message_uses_async_api(monkeypatch: pytest.MonkeyPatch) -> N
             {"json": {"content": "Hello", "tts": False}},
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_remembers_bot_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = Bot(token="test-token")
+
+    async def fake_get_current_user() -> dict[str, str]:
+        return {"id": "99", "username": "rest-bot", "discriminator": "0"}
+
+    try:
+        set_default_bot_id(None)
+        monkeypatch.setattr(bot.api_client, "get_current_user", fake_get_current_user)
+
+        user = await bot.get_current_user()
+
+        assert user.id == 99
+        assert bot.id == 99
+        assert get_default_bot_id() == "99"
+    finally:
+        set_default_bot_id(None)
+
+
+@pytest.mark.asyncio
+async def test_bot_direct_session_uses_library_metadata_headers() -> None:
+    bot = Bot(token="test-token")
+
+    session = await bot._create_session()
+    try:
+        assert f"vaidcord/{__version__}" in session.headers["User-Agent"]
+        assert session.headers["X-VaidCord-Version"] == __version__
+    finally:
+        await bot._close_session()
 
 
 @pytest.mark.asyncio
@@ -174,10 +215,107 @@ async def test_reply_builds_message_reference(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.asyncio
+async def test_reply_can_disable_author_mention(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = Bot(token="test-token")
+    calls: list[dict] = []
+
+    async def fake_request(method: str, endpoint: str, **kwargs):
+        calls.append(kwargs["json"])
+        return {"id": "x"}
+
+    monkeypatch.setattr(bot, "request", fake_request)
+
+    await bot.reply(
+        channel_id=100,
+        message_id=55,
+        content="pong",
+        mention_author=False,
+    )
+
+    assert calls[0]["allowed_mentions"] == {"replied_user": False}
+
+
+@pytest.mark.asyncio
 async def test_wait_until_ready_timeout() -> None:
     """wait_until_ready should return False on timeout."""
     bot = Bot(token="test-token")
     assert await bot.wait_until_ready(wait_timeout=0.01) is False
+
+
+@pytest.mark.asyncio
+async def test_drop_pending_updates_skips_until_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = Bot(token="test-token")
+    bot.enable_drop_pending_updates()
+    seen: list[str] = []
+
+    async def fake_propagate(_event):
+        seen.append("handled")
+
+    monkeypatch.setattr(bot, "propagate_event", fake_propagate)
+
+    await bot._handle_dispatch(
+        {
+            "t": "MESSAGE_CREATE",
+            "s": 1,
+            "d": {
+                "id": "100",
+                "channel_id": "200",
+                "timestamp": datetime.now().isoformat(),
+                "author": {"id": "42", "username": "tester", "discriminator": "0"},
+                "content": "hello",
+            },
+        }
+    )
+
+    assert seen == []
+
+    await bot._handle_dispatch(
+        {
+            "t": "READY",
+            "s": 2,
+            "d": {
+                "user": {"id": "42", "username": "vaidcord-bot", "discriminator": "0"},
+                "guilds": [],
+                "session_id": "abc",
+            },
+        }
+    )
+    assert bot._drop_pending_updates is False
+
+
+@pytest.mark.asyncio
+async def test_ignore_self_messages_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = Bot(token="test-token")
+    await bot._handle_ready(
+        {
+            "user": {"id": "42", "username": "vaidcord-bot", "discriminator": "0"},
+            "guilds": [],
+            "session_id": "abc",
+        }
+    )
+
+    seen: list[str] = []
+
+    async def fake_propagate(_event):
+        seen.append("handled")
+
+    monkeypatch.setattr(bot, "propagate_event", fake_propagate)
+
+    await bot._handle_dispatch(
+        {
+            "t": "MESSAGE_CREATE",
+            "s": 1,
+            "d": {
+                "id": "100",
+                "channel_id": "200",
+                "timestamp": datetime.now().isoformat(),
+                "author": {"id": "42", "username": "tester", "discriminator": "0"},
+                "content": "hello",
+            },
+        }
+    )
+
+    assert seen == []
 
 
 @pytest.mark.asyncio
@@ -209,6 +347,17 @@ def test_gateway_intent_presets() -> None:
     """Intent presets should be consistent and non-empty."""
     assert GatewayIntent.default() > 0
     assert GatewayIntent.all() >= GatewayIntent.default()
+
+
+def test_gateway_close_logs_privileged_intent_hint(caplog: pytest.LogCaptureFixture) -> None:
+    bot = Bot(token="test-token")
+    runtime = GatewayRuntime(bot)
+    runtime._ws = cast(Any, type("FakeWebSocket", (), {"close_code": 4014})())
+
+    with caplog.at_level("WARNING", logger="vaidcord.gateway_runtime"):
+        runtime._log_close_code()
+
+    assert "privileged intent" in caplog.text
 
 
 @pytest.mark.asyncio

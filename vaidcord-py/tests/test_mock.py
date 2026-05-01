@@ -7,8 +7,8 @@ from vaidcord import (
     create_mock_event,
     create_mock_message,
 )
-from vaidcord.mock import MockSettings
 from vaidcord.formatting import Formatter
+from vaidcord.mock import MockSettings
 from vaidcord.types import ChannelType, EventType
 
 
@@ -199,8 +199,9 @@ def test_formatter_combine_styles():
 
 @pytest.mark.asyncio
 async def test_mock_discord_server_smoke():
-    from vaidcord.mock import MockDiscordServer
     import aiohttp
+
+    from vaidcord.mock import MockDiscordServer
 
     server = MockDiscordServer(port=18081)
     await server.start()
@@ -242,5 +243,54 @@ async def test_mock_discord_server_send_dm_flow():
         assert server.requests[0]["path"] == "/api/v10/users/@me/channels"
         assert server.requests[1]["path"] == "/api/v10/channels/1123/messages"
         await bot.api_client.close()
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_mock_discord_server_local_ui_and_state():
+    import aiohttp
+
+    from vaidcord.mock import MockDiscordServer
+
+    server = MockDiscordServer(port=0, enable_ui=True)
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(server.local_url) as resp:
+                assert resp.status == 200
+                assert "VaidCord Mock Server" in await resp.text()
+
+            async with session.post(
+                f"{server.local_url}api/mock/messages",
+                json={"channel_id": "456", "content": "from ui"},
+            ) as resp:
+                assert resp.status == 200
+                message = await resp.json()
+                assert message["content"] == "from ui"
+                assert message["author"]["username"] == "MockUser"
+
+            async with session.get(f"{server.local_url}api/mock/state") as resp:
+                assert resp.status == 200
+                state = await resp.json()
+                assert state["base_url"] == server.base_url
+                assert state["messages"][0]["channel_id"] == "456"
+                assert len(state["requests"]) >= 3
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_mock_discord_server_ui_can_be_disabled():
+    import aiohttp
+
+    from vaidcord.mock import MockDiscordServer
+
+    server = MockDiscordServer(port=0, enable_ui=False)
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(server.local_url) as resp:
+                assert resp.status == 404
     finally:
         await server.stop()

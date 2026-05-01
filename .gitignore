@@ -20,6 +20,7 @@ build/
 *.so
 .libs/
 .pyx
+uv.lock
 
 # Virtual environments
 venv/
@@ -48,3 +49,8 @@ test-run/
 # OS generated files
 .DS_Store
 Thumbs.db
+.*/
+!.github/
+!.gitlab/
+!.gitignore
+!.dockerignore

@@ -8,11 +8,19 @@ from typing import Any
 
 import pytest
 
-from vaidcord.fsm import FSMMiddleware, FSMScope, MemoryFSMStorage, StorageKey
-from vaidcord.filters import F
 from vaidcord.dispatcher import Dispatcher
+from vaidcord.filters import F
+from vaidcord.fsm import FSMMiddleware, FSMScope, MemoryFSMStorage, StorageKey
 from vaidcord.router import Router
-from vaidcord.types import Channel, ChannelType, Event, EventType, Message, User
+from vaidcord.types import (
+    Channel,
+    ChannelType,
+    Event,
+    EventType,
+    Message,
+    User,
+    WebhookEventType,
+)
 
 MiddlewareHandler = Callable[[Event], Awaitable[Any]]
 
@@ -228,6 +236,22 @@ async def test_router_dependency_injection_and_filter_data_injection() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handler_can_receive_only_injected_bot_dependency() -> None:
+    router = Router(name="di-only")
+    sentinel = object()
+    captured: list[object] = []
+    router.provide("bot", sentinel)
+
+    @router.on_ready()
+    async def ready(bot: object) -> None:
+        captured.append(bot)
+
+    await router.propagate_event(Event(type=EventType.READY, data={}))
+
+    assert captured == [sentinel]
+
+
+@pytest.mark.asyncio
 async def test_dispatcher_lifecycle_hooks_startup_shutdown_reconnect() -> None:
     dp = Dispatcher()
     calls: list[str] = []
@@ -325,7 +349,7 @@ async def test_outer_middleware_runs_before_filter_resolution() -> None:
     async def handler(_event: Event) -> None:
         seen.append("handler")
 
-    await router.propagate_event(_message_event(content="hello"))
+    await router.propagate_event(_make_message_event(content="hello"))
     assert seen == ["outer", "handler"]
 
 
@@ -343,7 +367,7 @@ async def test_middleware_layer_registration_alias() -> None:
     async def handler(_event: Event) -> None:
         hits.append("handler")
 
-    await router.propagate_event(_message_event(content="x"))
+    await router.propagate_event(_make_message_event(content="x"))
     assert hits == ["outer", "handler"]
 
 
@@ -361,7 +385,7 @@ async def test_stop_propagation_helper_drops_event() -> None:
     async def handler(_event: Event) -> None:
         hits.append("handler")
 
-    result = await router.propagate_event(_message_event(content="x"))
+    result = await router.propagate_event(_make_message_event(content="x"))
     assert result is None
     assert hits == []
 
@@ -396,7 +420,7 @@ async def test_class_based_middlewares_can_be_chained() -> None:
     async def handler(_event: Event) -> None:
         trace.append("handler")
 
-    await router.propagate_event(_message_event(content="ok"))
+    await router.propagate_event(_make_message_event(content="ok"))
     assert trace == ["A:before", "B:before", "handler", "B:after", "A:after"]
 
 
@@ -519,3 +543,67 @@ async def test_gateway_event_name_shortcut_and_reconnect_helpers() -> None:
         "poll_add",
         "poll_remove",
     ]
+
+
+def test_router_has_shortcuts_for_all_gateway_receive_event_types() -> None:
+    special_names = {
+        EventType.RECONNECT: "on_reconnect_event",
+    }
+    missing = []
+    for event_type in EventType:
+        method_name = special_names.get(event_type, f"on_{event_type.name.lower()}")
+        if not hasattr(Router, method_name):
+            missing.append(method_name)
+
+    assert missing == []
+
+
+def test_router_has_common_short_aliases() -> None:
+    aliases = {
+        "on_message": EventType.MESSAGE_CREATE,
+        "on_reaction_add": EventType.MESSAGE_REACTION_ADD,
+        "on_reaction_remove": EventType.MESSAGE_REACTION_REMOVE,
+        "on_reaction_remove_all": EventType.MESSAGE_REACTION_REMOVE_ALL,
+        "on_reaction_remove_emoji": EventType.MESSAGE_REACTION_REMOVE_EMOJI,
+        "on_member_join": EventType.GUILD_MEMBER_ADD,
+        "on_member_leave": EventType.GUILD_MEMBER_REMOVE,
+        "on_member_update": EventType.GUILD_MEMBER_UPDATE,
+        "on_guild_join": EventType.GUILD_CREATE,
+        "on_guild_leave": EventType.GUILD_DELETE,
+        "on_typing": EventType.TYPING_START,
+        "on_interaction": EventType.INTERACTION_CREATE,
+        "on_poll_vote_add": EventType.MESSAGE_POLL_VOTE_ADD,
+        "on_poll_vote_remove": EventType.MESSAGE_POLL_VOTE_REMOVE,
+    }
+
+    for method_name, event_type in aliases.items():
+        router = Router()
+
+        async def handler(_event: Event) -> None:
+            return None
+
+        getattr(router, method_name)()(handler)
+
+        assert router.get_handlers(event_type)
+
+
+def test_router_has_shortcuts_for_all_webhook_event_types() -> None:
+    missing = []
+    for event_type in WebhookEventType:
+        method_name = f"on_webhook_{event_type.name.lower()}"
+        if not hasattr(Router, method_name):
+            missing.append(method_name)
+
+    assert missing == []
+
+
+def test_webhook_event_shortcut_registers_separate_from_gateway_event() -> None:
+    router = Router()
+
+    async def handler(_event: Event) -> None:
+        return None
+
+    router.on_webhook_entitlement_create()(handler)
+
+    assert router.get_handlers(WebhookEventType.ENTITLEMENT_CREATE)
+    assert router.get_handlers(EventType.ENTITLEMENT_CREATE) == []

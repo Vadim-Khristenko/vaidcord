@@ -26,7 +26,7 @@ class ApplicationRoleConnectionMetadata:
     description_localizations: dict[str, str] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ApplicationRoleConnectionMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> ApplicationRoleConnectionMetadata:
         return cls(
             type=ApplicationRoleConnectionMetadataType(int(data["type"])),
             key=data["key"],
@@ -64,7 +64,7 @@ class Application:
     raw: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Application":
+    def from_dict(cls, data: dict[str, Any]) -> Application:
         return cls(
             id=int(data["id"]),
             name=data.get("name", ""),

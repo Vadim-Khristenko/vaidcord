@@ -7,15 +7,15 @@ from datetime import datetime
 import pytest
 
 from vaidcord.filters import (
-    F,
+    BotFilter,
+    ChatTypeFilter,
     CommandFilter,
     CommandHelpFilter,
     CommandSettingsFilter,
     CommandStartFilter,
     CustomFilter,
-    ChatTypeFilter,
+    F,
     MagicData,
-    BotFilter,
     RegexFilter,
     UserFilter,
     as_filter,

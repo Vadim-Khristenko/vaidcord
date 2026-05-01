@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
 
 from vaidcord.types import Event
+
 from .base import BaseFilter, FilterCallable, run_filter
 from .magic import _resolve_path
 
