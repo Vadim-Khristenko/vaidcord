@@ -92,6 +92,43 @@ async def test_mock_http_client():
     assert history[0]["endpoint"] == "/users/123"
 
 
+@pytest.mark.asyncio
+async def test_mock_http_client_raises_vaidcord_errors():
+    """Mock HTTP errors should match the real client hierarchy."""
+    from vaidcord.errors import ForbiddenError, NotFoundError, RateLimitError
+    from vaidcord.mock import MockHTTPClient, MockHTTPResponse
+
+    http = MockHTTPClient()
+    http.set_response(
+        "GET",
+        "/forbidden",
+        MockHTTPResponse(status=403, error_message="forbidden"),
+    )
+    http.set_response(
+        "GET",
+        "/missing",
+        MockHTTPResponse(status=404, error_message="missing"),
+    )
+    http.set_response(
+        "GET",
+        "/limited",
+        MockHTTPResponse(
+            status=429,
+            error_message="limited",
+            headers={"Retry-After": "1.5"},
+        ),
+    )
+
+    with pytest.raises(ForbiddenError):
+        await http.request("GET", "/forbidden")
+
+    with pytest.raises(NotFoundError):
+        await http.request("GET", "/missing")
+
+    with pytest.raises(RateLimitError):
+        await http.request("GET", "/limited")
+
+
 def test_mock_bot_configure_runtime_settings():
     """MockBot.configure should allow easy runtime tuning."""
     bot = MockBot()
@@ -203,7 +240,7 @@ async def test_mock_discord_server_smoke():
 
     from vaidcord.mock import MockDiscordServer
 
-    server = MockDiscordServer(port=18081)
+    server = MockDiscordServer(port=0)
     await server.start()
     try:
         async with aiohttp.ClientSession() as session:
@@ -219,6 +256,19 @@ async def test_mock_discord_server_smoke():
                 assert resp.status == 200
                 payload = await resp.json()
                 assert payload["content"] == "hello"
+                message_id = payload["id"]
+
+            async with session.get(f"{server.base_url}/v10/channels/123") as resp:
+                assert resp.status == 200
+                channel = await resp.json()
+                assert channel["id"] == "123"
+
+            async with session.get(
+                f"{server.base_url}/v10/channels/123/messages/{message_id}"
+            ) as resp:
+                assert resp.status == 200
+                payload = await resp.json()
+                assert payload["id"] == message_id
     finally:
         await server.stop()
 
@@ -228,7 +278,7 @@ async def test_mock_discord_server_send_dm_flow():
     from vaidcord.bot import Bot, BotConfig
     from vaidcord.mock import MockDiscordServer
 
-    server = MockDiscordServer(port=18082)
+    server = MockDiscordServer(port=0)
     await server.start()
     try:
         bot = Bot(
@@ -263,19 +313,207 @@ async def test_mock_discord_server_local_ui_and_state():
 
             async with session.post(
                 f"{server.local_url}api/mock/messages",
-                json={"channel_id": "456", "content": "from ui"},
+                json={
+                    "channel_id": "456",
+                    "channel_name": "testing",
+                    "guild_id": "777",
+                    "guild_name": "UI Guild",
+                    "author_id": "9",
+                    "author_username": "UI User",
+                    "content": "from ui",
+                },
             ) as resp:
                 assert resp.status == 200
                 message = await resp.json()
                 assert message["content"] == "from ui"
-                assert message["author"]["username"] == "MockUser"
+                assert message["author"]["username"] == "UI User"
+
+            async with session.post(f"{server.base_url}/v10/channels/456/typing") as resp:
+                assert resp.status == 204
 
             async with session.get(f"{server.local_url}api/mock/state") as resp:
                 assert resp.status == 200
                 state = await resp.json()
                 assert state["base_url"] == server.base_url
                 assert state["messages"][0]["channel_id"] == "456"
-                assert len(state["requests"]) >= 3
+                assert state["users"][-1]["username"] == "UI User"
+                assert state["guilds"][-1]["id"] == "777"
+                assert state["typing_events"][0]["channel_id"] == "456"
+                assert len(state["requests"]) >= 4
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_mock_discord_server_supports_message_edit_delete_and_fetch_list():
+    import aiohttp
+
+    from vaidcord.mock import MockDiscordServer
+
+    server = MockDiscordServer(port=0)
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{server.base_url}/v10/channels/123/messages",
+                json={"content": "before edit"},
+            ) as resp:
+                assert resp.status == 200
+                created = await resp.json()
+
+            message_id = created["id"]
+            async with session.patch(
+                f"{server.base_url}/v10/channels/123/messages/{message_id}",
+                json={"content": "after edit"},
+            ) as resp:
+                assert resp.status == 200
+                edited = await resp.json()
+                assert edited["content"] == "after edit"
+
+            async with session.get(
+                f"{server.base_url}/v10/channels/123/messages"
+            ) as resp:
+                assert resp.status == 200
+                messages = await resp.json()
+                assert messages[0]["id"] == message_id
+
+            async with session.delete(
+                f"{server.base_url}/v10/channels/123/messages/{message_id}"
+            ) as resp:
+                assert resp.status == 204
+
+            async with session.get(
+                f"{server.base_url}/v10/channels/123/messages/{message_id}"
+            ) as resp:
+                assert resp.status == 404
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_mock_discord_server_exposes_common_rest_entities():
+    import aiohttp
+
+    from vaidcord.mock import MockDiscordServer
+
+    server = MockDiscordServer(port=0)
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{server.base_url}/v10/users/@me") as resp:
+                assert resp.status == 200
+                current_user = await resp.json()
+                assert current_user["username"] == "MockBot"
+
+            async with session.get(f"{server.base_url}/v10/users/2") as resp:
+                assert resp.status == 200
+                user = await resp.json()
+                assert user["username"] == "MockUser"
+
+            async with session.get(f"{server.base_url}/v10/guilds/999") as resp:
+                assert resp.status == 200
+                guild = await resp.json()
+                assert guild["name"] == "Mock Guild"
+
+            async with session.post(
+                f"{server.base_url}/v10/users/@me/channels",
+                json={"recipient_id": "55"},
+            ) as resp:
+                assert resp.status == 200
+                channel = await resp.json()
+                assert channel["id"] == "1055"
+                assert channel["type"] == 1
+                assert channel["recipients"][0]["id"] == "55"
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_mock_discord_server_supports_channel_lifecycle_and_guild_channel_listing():
+    import aiohttp
+
+    from vaidcord.mock import MockDiscordServer
+
+    server = MockDiscordServer(port=0)
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{server.base_url}/v10/users/@me/guilds") as resp:
+                assert resp.status == 200
+                guilds = await resp.json()
+                assert guilds[0]["id"] == "999"
+
+            async with session.get(f"{server.base_url}/v10/guilds/999/channels") as resp:
+                assert resp.status == 200
+                channels = await resp.json()
+                assert channels[0]["id"] == "123"
+
+            async with session.patch(
+                f"{server.base_url}/v10/channels/123",
+                json={"name": "ops-room", "topic": "updated topic"},
+            ) as resp:
+                assert resp.status == 200
+                channel = await resp.json()
+                assert channel["name"] == "ops-room"
+                assert channel["topic"] == "updated topic"
+
+            async with session.delete(f"{server.base_url}/v10/channels/123") as resp:
+                assert resp.status == 200
+                deleted = await resp.json()
+                assert deleted["id"] == "123"
+
+            async with session.get(f"{server.base_url}/v10/channels/123") as resp:
+                assert resp.status == 404
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_api_client_and_bot_message_channel_helpers_work_against_mock_server():
+    from vaidcord import Bot, BotConfig
+    from vaidcord.api_client import APIClient
+    from vaidcord.mock import MockDiscordServer
+
+    server = MockDiscordServer(port=0)
+    await server.start()
+    try:
+        api = APIClient(token="test-token", base_url=server.base_url, api_version="10")
+        bot = Bot(
+            config=BotConfig(
+                token="test-token",
+                base_url=server.base_url,
+                api_version="10",
+            )
+        )
+
+        channel = await bot.modify_channel(123, name="support", topic="triage")
+        assert channel.name == "support"
+        assert channel.topic == "triage"
+
+        guild_channels = await bot.list_guild_channels(999)
+        assert guild_channels[0].id == 123
+
+        await api.send_message(123, {"content": "first"})
+        await api.send_message(123, {"content": "second"})
+
+        listed = await bot.list_messages(123, limit=1)
+        assert len(listed) == 1
+        assert listed[0].content == "second"
+
+        fetched = await bot.fetch_message(123, listed[0].id)
+        assert fetched.content == "second"
+
+        edited = await bot.edit_message(123, fetched.id, content="edited second")
+        assert edited.content == "edited second"
+
+        raw_messages = await api.list_messages(123, after=10001)
+        assert raw_messages[0]["content"] == "edited second"
+
+        deleted = await bot.delete_message(123, fetched.id)
+        assert deleted == {}
+
+        await api.close()
+        await bot.api_client.close()
     finally:
         await server.stop()
 
