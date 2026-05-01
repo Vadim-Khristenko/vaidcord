@@ -92,6 +92,8 @@ await dp.start_webhook_many([bot_a, bot_b], drop_pending_updates=True)
 ## Feature map
 
 - [docs/PYTHON_DRIVER.md](docs/PYTHON_DRIVER.md) - architecture, DI, filters, middleware, FSM, lifecycle
+- [docs/FILTERS.md](docs/FILTERS.md) - class filters, MagicFilter, MagicData, BotFilter, composition examples
+- [docs/MIDDLEWARE.md](docs/MIDDLEWARE.md) - outer/inner middleware model and FSM as system middleware
 - [docs/APPLICATION_API.md](docs/APPLICATION_API.md) - Discord application resources and role connection metadata
 - [docs/OAUTH2.md](docs/OAUTH2.md) - OAuth2 helpers and token workflows
 - [examples/README.md](examples/README.md) - quick index of runnable examples

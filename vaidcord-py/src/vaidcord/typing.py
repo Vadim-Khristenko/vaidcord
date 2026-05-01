@@ -41,6 +41,12 @@ class Middleware(Protocol):
     ) -> Awaitable[EventHandlerResult]: ...
 
 
+InnerMiddleware = Middleware
+OuterMiddleware = Middleware
+LastHandler = EventHandler
+LastMiddleware = Middleware
+NextMiddleware = NextHandler
+
 class DIEventCallable(Protocol[P, R]):
     """Generic callable taking Event first for DI-style wrappers."""
 

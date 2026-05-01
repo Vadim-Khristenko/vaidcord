@@ -35,6 +35,7 @@ __lazy_imports__ = {
     "EventHandlerResult": ".typing",
     "LifecycleHandler": ".router",
     "RouterFilterConfig": ".router",
+    "BaseMiddleware": ".middleware",
     # Filters
     "F": ".filters",
     "FilterExpr": ".filters",
@@ -138,6 +139,7 @@ __all__ = [
     "EventHandlerResult",
     "LifecycleHandler",
     "RouterFilterConfig",
+    "BaseMiddleware",
     "F",
     "FilterExpr",
     "MagicFilter",
