@@ -6,6 +6,7 @@ import asyncio
 import os
 
 from vaidcord import Bot, Dispatcher, MemoryFSMStorage, Router
+from vaidcord.filters import CommandFilter
 from vaidcord.types import Event
 
 PROFILE_ASK_NAME = "profile:ask_name"
@@ -16,7 +17,7 @@ def build_dispatcher() -> Dispatcher:
     dispatcher = Dispatcher(storage=MemoryFSMStorage())
     profile_router = Router(name="profile")
 
-    @profile_router.on_command("profile")
+    @profile_router.on_message(CommandFilter(("profile",)))
     async def start_profile(event: Event, bot: Bot) -> None:
         fsm = event.context["fsm"]
         await fsm.set_state(PROFILE_ASK_NAME)
