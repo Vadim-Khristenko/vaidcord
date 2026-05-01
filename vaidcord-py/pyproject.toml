@@ -1,6 +1,6 @@
 [project]
 name = "vaidcord"
-version = "0.1.0b1"
+version = "0.1.0b2"
 description = "High-performance Discord framework inspired by Aiogram 3.x architecture"
 readme = "README.md"
 requires-python = ">=3.12"

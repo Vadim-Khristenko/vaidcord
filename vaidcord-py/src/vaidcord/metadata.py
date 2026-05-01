@@ -14,7 +14,7 @@ def _package_version() -> str:
     try:
         return metadata.version(LIBRARY_NAME)
     except metadata.PackageNotFoundError:
-        return "0.1.0b1"
+        return "0.1.0b2"
 
 
 __version__ = _package_version()
