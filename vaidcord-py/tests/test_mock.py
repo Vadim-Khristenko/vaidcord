@@ -1,5 +1,7 @@
 """Tests for VaidCord mock utilities."""
 
+from datetime import datetime
+
 import pytest
 
 from vaidcord import (
@@ -339,6 +341,8 @@ async def test_mock_discord_server_local_ui_and_state():
                 assert state["users"][-1]["username"] == "UI User"
                 assert state["guilds"][-1]["id"] == "777"
                 assert state["typing_events"][0]["channel_id"] == "456"
+                assert state["messages"][0]["timestamp"].endswith("Z")
+                datetime.fromisoformat(state["messages"][0]["timestamp"].replace("Z", "+00:00"))
                 assert len(state["requests"]) >= 4
     finally:
         await server.stop()
@@ -505,9 +509,11 @@ async def test_api_client_and_bot_message_channel_helpers_work_against_mock_serv
 
         edited = await bot.edit_message(123, fetched.id, content="edited second")
         assert edited.content == "edited second"
+        assert edited.edited_timestamp is not None
 
         raw_messages = await api.list_messages(123, after=10001)
         assert raw_messages[0]["content"] == "edited second"
+        assert raw_messages[0]["edited_timestamp"].endswith("Z")
 
         deleted = await bot.delete_message(123, fetched.id)
         assert deleted == {}
@@ -530,5 +536,59 @@ async def test_mock_discord_server_ui_can_be_disabled():
         async with aiohttp.ClientSession() as session:
             async with session.get(server.local_url) as resp:
                 assert resp.status == 404
+    finally:
+        await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_mock_discord_server_profiles_can_be_created_updated_and_selected():
+    import aiohttp
+
+    from vaidcord.mock import MockDiscordServer
+
+    server = MockDiscordServer(port=0)
+    await server.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{server.local_url}api/mock/profiles",
+                json={
+                    "id": "77",
+                    "username": "SupportBot",
+                    "global_name": "Support",
+                    "discriminator": "4242",
+                    "bot": True,
+                },
+            ) as resp:
+                assert resp.status == 200
+                created = await resp.json()
+                assert created["id"] == "77"
+                assert created["bot"] is True
+
+            async with session.patch(
+                f"{server.local_url}api/mock/profiles/77",
+                json={"username": "SupportAgent", "bot": False},
+            ) as resp:
+                assert resp.status == 200
+                updated = await resp.json()
+                assert updated["username"] == "SupportAgent"
+                assert updated["bot"] is False
+
+            async with session.patch(
+                f"{server.local_url}api/mock/current-user",
+                json={"user_id": "77"},
+            ) as resp:
+                assert resp.status == 200
+                current = await resp.json()
+                assert current["id"] == "77"
+
+            async with session.post(
+                f"{server.base_url}/v10/channels/123/messages",
+                json={"content": "sent as selected profile"},
+            ) as resp:
+                assert resp.status == 200
+                message = await resp.json()
+                assert message["author"]["id"] == "77"
+                assert message["author"]["username"] == "SupportAgent"
     finally:
         await server.stop()

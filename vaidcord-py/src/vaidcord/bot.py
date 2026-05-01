@@ -391,6 +391,12 @@ class Bot(Router):
             if ts_str
             else datetime.now()
         )
+        edited_ts_str = data.get("edited_timestamp")
+        edited_timestamp = (
+            datetime.fromisoformat(edited_ts_str.replace("Z", "+00:00"))
+            if edited_ts_str
+            else None
+        )
 
         # Parse channel
         channel_id = int(data["channel_id"])
@@ -416,6 +422,7 @@ class Bot(Router):
             author=author,
             content=data.get("content", ""),
             timestamp=timestamp,
+            edited_timestamp=edited_timestamp,
             tts=data.get("tts", False),
             mention_everyone=data.get("mention_everyone", False),
             mentions=mentions,
