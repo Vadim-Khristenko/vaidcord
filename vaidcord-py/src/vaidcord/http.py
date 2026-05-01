@@ -16,6 +16,7 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -162,9 +163,17 @@ class HTTPClient:
     - Detailed error handling
     """
 
-    def __init__(self, config: HTTPConfig) -> None:
+    def __init__(
+        self,
+        config: HTTPConfig,
+        *,
+        session_provider: Callable[[], Awaitable[ClientSession]] | None = None,
+        session_closer: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
         self.config = config
         self._session: ClientSession | None = None
+        self._session_provider = session_provider
+        self._session_closer = session_closer
         self._rate_limits: dict[str, RateLimitInfo] = {}
         self._global_rate_limit: datetime | None = None
         self._global_rate_limit_lock = asyncio.Lock()
@@ -245,6 +254,8 @@ class HTTPClient:
 
     async def _create_session(self) -> ClientSession:
         """Create or get existing aiohttp session."""
+        if self._session_provider is not None:
+            return await self._session_provider()
         if self._session is None or self._session.closed:
             connector = TCPConnector(limit=self.config.connector_limit)
             self._session = ClientSession(
@@ -256,6 +267,9 @@ class HTTPClient:
 
     async def close(self) -> None:
         """Close the HTTP session."""
+        if self._session_closer is not None:
+            await self._session_closer()
+            return
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None

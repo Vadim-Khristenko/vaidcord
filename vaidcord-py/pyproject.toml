@@ -42,21 +42,17 @@ dev = [
     "flake8>=7.1.1",
     "mypy>=1.11.2",
 ]
-fsm-backends = [
-    "redis>=5.0.0",
-    "asyncpg>=0.30.0",
-]
 mongo = [
     "pymongo>=4.9.0",
 ]
 redis = [
-    "redis>=5.0.0",
+    "redis>=7.0.0",
 ]
 postgres = [
     "asyncpg>=0.30.0",
 ]
-all-backends = [
-    "redis>=5.0.0",
+fsm-backends = [
+    "redis>=7.0.0",
     "pymongo>=4.9.0",
     "asyncpg>=0.30.0",
 ]
@@ -106,7 +102,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "ruff>=0.15.11",
     "flake8>=7.1.1",
-    "wemake-python-styleguide>=0.19.2",
+    "wemake-python-styleguide>=1.6.0",
     "mypy>=1.11.2",
 ]
 

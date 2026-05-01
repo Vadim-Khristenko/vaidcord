@@ -113,6 +113,19 @@ async def test_bot_direct_session_uses_library_metadata_headers() -> None:
 
 
 @pytest.mark.asyncio
+async def test_bot_api_client_reuses_gateway_session() -> None:
+    bot = Bot(token="test-token")
+
+    api_session = await bot.api_client._http._create_session()
+    gateway_session = await bot._create_session()
+
+    assert api_session is gateway_session
+
+    await bot.api_client.close()
+    assert bot._session is None
+
+
+@pytest.mark.asyncio
 async def test_send_message_supports_discord_fields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

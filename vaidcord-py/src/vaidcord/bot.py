@@ -157,6 +157,8 @@ class Bot(Router):
             token=self.config.token,
             base_url=self.config.base_url,
             api_version=self.config.api_version,
+            session_provider=self._create_session,
+            session_closer=self._close_session,
         )
         self.runtime = GatewayRuntime(self)
 

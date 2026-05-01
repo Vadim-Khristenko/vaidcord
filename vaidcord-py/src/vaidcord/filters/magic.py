@@ -22,6 +22,24 @@ def _resolve_path(event: Event, path: str, default: Any = None) -> Any:
     return current
 
 
+@dataclass(frozen=True)
+class _MagicDataEventProxy:
+    event: Event
+
+    @property
+    def data(self) -> dict[str, Any]:
+        return self.event.data
+
+    def __getattr__(self, name: str) -> Any:
+        if hasattr(self.event, name):
+            return getattr(self.event, name)
+        if name in self.event.context:
+            return self.event.context[name]
+        if name in self.event.data:
+            return self.event.data[name]
+        raise AttributeError(name)
+
+
 class MagicFilter:
     def __init__(self, path: str = '', *, selector: str | None = None) -> None:
         self._path = path
@@ -159,12 +177,7 @@ class MagicData(BaseFilter):
     expr: FilterLike
 
     async def __call__(self, event: Event) -> bool | dict[str, Any]:
-        payload = {**event.data, **event.context}
-        shadow = Event(type=event.type, data=payload, guild=event.guild, channel=event.channel, user=event.user, message=event.message, interaction=event.interaction, raw_data=event.raw_data, bot=event.bot, context=event.context)
-        for key, value in payload.items():
-            if not hasattr(shadow, key):
-                setattr(shadow, key, value)
-        return await as_filter(self.expr)(shadow)
+        return await as_filter(self.expr)(_MagicDataEventProxy(event))
 
 
 @dataclass(frozen=True)

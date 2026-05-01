@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import quote
+
+from aiohttp import ClientSession
 
 from vaidcord.http import HTTPClient, HTTPConfig
 
@@ -9,8 +12,20 @@ from vaidcord.http import HTTPClient, HTTPConfig
 class APIClient:
     """Discord REST API facade with endpoint helpers on top of HTTPClient."""
 
-    def __init__(self, token: str, *, base_url: str = "https://discord.com/api", api_version: str = "10") -> None:
-        self._http = HTTPClient(HTTPConfig(token=token, base_url=base_url, api_version=api_version))
+    def __init__(
+        self,
+        token: str,
+        *,
+        base_url: str = "https://discord.com/api",
+        api_version: str = "10",
+        session_provider: Callable[[], Awaitable[ClientSession]] | None = None,
+        session_closer: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
+        self._http = HTTPClient(
+            HTTPConfig(token=token, base_url=base_url, api_version=api_version),
+            session_provider=session_provider,
+            session_closer=session_closer,
+        )
 
     def set_bot_id(self, bot_id: str | int | None) -> None:
         """Attach bot identity to lower-level HTTP logs."""

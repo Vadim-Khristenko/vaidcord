@@ -274,6 +274,28 @@ async def test_magic_data_filter_reads_event_context_and_data() -> None:
     assert data == {"tenant_name": "core"}
 
 
+@pytest.mark.asyncio
+async def test_magic_data_filter_does_not_allocate_shadow_event(monkeypatch: pytest.MonkeyPatch) -> None:
+    import vaidcord.filters.magic as magic_module
+
+    def fail_event_allocation(*_args, **_kwargs):
+        raise AssertionError("MagicData should not allocate a shadow Event")
+
+    monkeypatch.setattr(magic_module, "Event", fail_event_allocation)
+
+    event = _event_with_text("hello")
+    event.context["maintenance_mode"] = True
+    event.data["tenant"] = "core"
+
+    passed, data = await run_filter_with_data(
+        MagicData(F.maintenance_mode.is_(True) & F.tenant.as_("tenant_name")),
+        event,
+    )
+
+    assert passed is True
+    assert data == {"tenant_name": "core"}
+
+
 class _DummyBot:
     def __init__(self, bot_id: int, username: str) -> None:
         self.id = bot_id
