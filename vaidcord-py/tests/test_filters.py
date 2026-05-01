@@ -13,6 +13,9 @@ from vaidcord.filters import (
     CommandSettingsFilter,
     CommandStartFilter,
     CustomFilter,
+    ChatTypeFilter,
+    MagicData,
+    BotFilter,
     RegexFilter,
     UserFilter,
     as_filter,
@@ -230,3 +233,72 @@ async def test_specialized_message_handlers() -> None:
     await router.propagate_event(_event_with_channel_type("d", ChannelType.DM, guild_id=None))
 
     assert hits == ["topic", "guild", "private"]
+
+@pytest.mark.asyncio
+async def test_magic_filter_as_injects_data() -> None:
+    event = _event_with_text("hello")
+    ok, data = await run_filter_with_data(F.message.content.as_("text"), event)
+    assert ok is True
+    assert data == {"text": "hello"}
+
+
+@pytest.mark.asyncio
+async def test_magic_filter_selector_any_all() -> None:
+    event = _event_with_text("hello")
+    event.data["numbers"] = [1, 2, 3]
+
+    assert await (F.data.numbers[...].__gt__(2))(event) is True
+    assert await (F.data.numbers[:].__gt__(0))(event) is True
+    assert await (F.data.numbers[:].__gt__(2))(event) is False
+
+
+@pytest.mark.asyncio
+async def test_chat_type_filter_class() -> None:
+    event = _event_with_channel_type("hey", ChannelType.DM, guild_id=None)
+    assert await ChatTypeFilter(chat_type="dm")(event) is True
+    assert await ChatTypeFilter(chat_type=["text", "dm"])(event) is True
+    assert await ChatTypeFilter(chat_type=ChannelType.TEXT)(event) is False
+
+
+@pytest.mark.asyncio
+async def test_magic_data_filter_reads_event_context_and_data() -> None:
+    event = _event_with_text("hello")
+    event.context["maintenance_mode"] = True
+    event.data["tenant"] = "core"
+
+    passed, data = await run_filter_with_data(
+        MagicData(F.maintenance_mode.is_(True) & F.tenant.as_("tenant_name")),
+        event,
+    )
+    assert passed is True
+    assert data == {"tenant_name": "core"}
+
+
+class _DummyBot:
+    def __init__(self, bot_id: int, username: str) -> None:
+        self.id = bot_id
+        self.username = username
+
+
+@pytest.mark.asyncio
+async def test_bot_filter_and_magic_bot_checks() -> None:
+    event = _event_with_text("hello")
+    event.bot = _DummyBot(bot_id=42, username="main_bot")
+
+    assert await BotFilter(bot_ids={42})(event) is True
+    assert await BotFilter(bot_ids={99})(event) is False
+
+    ok, data = await run_filter_with_data(F.bot.bot_id_in({42}) & F.bot.as_("bot_obj"), event)
+    assert ok is True
+    assert "bot_obj" in data
+
+
+@pytest.mark.asyncio
+async def test_run_filter_injects_bot_kwarg_when_filter_requests_it() -> None:
+    event = _event_with_text("hello")
+    event.bot = _DummyBot(bot_id=7, username="worker_bot")
+
+    async def requires_bot(_event: Event, *, bot=None):
+        return bot is not None and getattr(bot, "id", None) == 7
+
+    assert await run_filter_with_data(requires_bot, event) == (True, {})
