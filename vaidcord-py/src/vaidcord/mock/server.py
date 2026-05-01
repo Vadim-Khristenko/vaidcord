@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from aiohttp import web
@@ -13,6 +14,10 @@ logger = logging.getLogger(__name__)
 
 def _copy_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items()}
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 @dataclass
@@ -40,6 +45,9 @@ class MockDiscordServer:
         self._app.router.add_get("/", self._ui)
         self._app.router.add_get("/api/mock/state", self._mock_state)
         self._app.router.add_post("/api/mock/messages", self._mock_message)
+        self._app.router.add_post("/api/mock/profiles", self._create_profile)
+        self._app.router.add_patch("/api/mock/profiles/{user_id}", self._update_profile)
+        self._app.router.add_patch("/api/mock/current-user", self._set_current_user)
         self._app.router.add_post("/api/mock/reset", self._mock_reset)
 
         self._app.router.add_get("/api/v10/gateway/bot", self._gateway_bot)
@@ -132,27 +140,56 @@ class MockDiscordServer:
             entry["json"] = payload
         self.requests.append(entry)
 
+    def _sync_guild_member_counts(self) -> None:
+        member_count = len(self.users)
+        for guild in self.guilds.values():
+            guild["member_count"] = member_count
+
     def _ensure_user(
         self,
         user_id: str,
         *,
         username: str | None = None,
         bot: bool = False,
+        discriminator: str | None = None,
+        global_name: str | None = None,
     ) -> dict[str, Any]:
         existing = self.users.get(user_id)
         if existing is not None:
             if username:
                 existing["username"] = username
             existing["bot"] = bot
+            if discriminator is not None:
+                existing["discriminator"] = discriminator
+            if global_name is not None:
+                existing["global_name"] = global_name
             return existing
         user = {
             "id": user_id,
             "username": username or f"User{user_id}",
-            "discriminator": "0",
+            "discriminator": discriminator or "0",
             "bot": bot,
         }
+        if global_name is not None:
+            user["global_name"] = global_name
         self.users[user_id] = user
+        self._sync_guild_member_counts()
         return user
+
+    def _upsert_profile(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        profile = self._ensure_user(
+            user_id,
+            username=str(payload.get("username") or f"User{user_id}"),
+            bot=bool(payload.get("bot", False)),
+            discriminator=str(payload.get("discriminator", "0")),
+            global_name=(
+                str(payload["global_name"]) if payload.get("global_name") is not None else None
+            ),
+        )
+        if "global_name" in payload and payload.get("global_name") in ("", None):
+            profile.pop("global_name", None)
+        self._sync_guild_member_counts()
+        return profile
 
     def _ensure_guild(self, guild_id: str, *, name: str | None = None) -> dict[str, Any]:
         existing = self.guilds.get(guild_id)
@@ -252,6 +289,36 @@ class MockDiscordServer:
         self.messages.append(message)
         self._messages_by_id[message["id"]] = message
         return web.json_response(message)
+
+    async def _create_profile(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        self._record_request(request, payload=payload)
+        user_id = str(payload.get("id") or len(self.users) + 1)
+        profile = self._upsert_profile(user_id, payload)
+        if payload.get("set_current"):
+            self._current_user = profile
+        return web.json_response(profile)
+
+    async def _update_profile(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        self._record_request(request, payload=payload)
+        user_id = request.match_info["user_id"]
+        if user_id not in self.users:
+            raise web.HTTPNotFound(text='{"message":"Unknown User","code":10013}')
+        updated = self._upsert_profile(user_id, {**self.users[user_id], **payload})
+        if self._current_user["id"] == user_id:
+            self._current_user = updated
+        return web.json_response(updated)
+
+    async def _set_current_user(self, request: web.Request) -> web.Response:
+        payload = await request.json()
+        self._record_request(request, payload=payload)
+        user_id = str(payload.get("user_id", ""))
+        user = self.users.get(user_id)
+        if user is None:
+            raise web.HTTPNotFound(text='{"message":"Unknown User","code":10013}')
+        self._current_user = user
+        return web.json_response(user)
 
     async def _gateway_bot(self, request: web.Request) -> web.Response:
         self._record_request(request)
@@ -401,6 +468,7 @@ class MockDiscordServer:
         for key in ("content", "embeds", "components", "flags"):
             if key in payload:
                 message[key] = payload[key]
+        message["edited_timestamp"] = _utc_now_iso()
         return web.json_response(message)
 
     async def _delete_message(self, request: web.Request) -> web.Response:
@@ -425,6 +493,7 @@ class MockDiscordServer:
                 "channel_id": channel_id,
                 "user_id": self._current_user["id"],
                 "username": self._current_user["username"],
+                "timestamp": _utc_now_iso(),
             }
         )
         return web.Response(status=204)
@@ -460,7 +529,8 @@ class MockDiscordServer:
             "channel_id": channel_id,
             "content": content,
             "tts": tts,
-            "timestamp": "2026-04-30T00:00:00Z",
+            "timestamp": _utc_now_iso(),
+            "edited_timestamp": None,
             "author": _copy_payload(author),
         }
         if guild_id is not None:

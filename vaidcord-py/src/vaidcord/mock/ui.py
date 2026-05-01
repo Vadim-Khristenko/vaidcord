@@ -262,7 +262,7 @@ MOCK_UI_HTML = """<!doctype html>
         <div class="meta">
           <div>REST base: <span id="base-url">-</span></div>
           <div>Gateway: <span id="gateway-url">-</span></div>
-          <div>Bot user: <span id="current-user">-</span></div>
+          <div>Active bot: <span id="current-user">-</span></div>
         </div>
       </div>
       <div class="quick-card">
@@ -273,6 +273,13 @@ MOCK_UI_HTML = """<!doctype html>
           <div>Typing: <span id="typing-count">0</span></div>
           <div>Channels: <span id="channel-count">0</span></div>
           <div>Guilds: <span id="guild-count">0</span></div>
+        </div>
+      </div>
+      <div class="quick-card">
+        <div class="small">Bot Profile</div>
+        <div class="field" style="margin-top: 10px;">
+          <label for="current-user-select">Send as</label>
+          <input id="current-user-select" list="profile-options" aria-label="Active bot profile">
         </div>
       </div>
     </aside>
@@ -312,6 +319,10 @@ MOCK_UI_HTML = """<!doctype html>
           <label for="author-name">Author Name</label>
           <input id="author-name" value="MockUser" aria-label="Author Name">
         </div>
+        <div class="field">
+          <label for="author-bot">Author Is Bot</label>
+          <input id="author-bot" type="checkbox" aria-label="Author Is Bot">
+        </div>
         <div class="field full">
           <label for="content">Simulated inbound message</label>
           <input id="content" placeholder="Type the message content the bot should receive" aria-label="Message content">
@@ -339,6 +350,31 @@ MOCK_UI_HTML = """<!doctype html>
         <div class="field full actions">
           <button id="edit-message-btn" class="secondary" type="button">Edit Message</button>
           <button id="delete-message-btn" class="secondary" type="button">Delete Message</button>
+        </div>
+        <div class="field">
+          <label for="profile-id">Profile ID</label>
+          <input id="profile-id" placeholder="Leave blank to auto-create" aria-label="Profile ID">
+        </div>
+        <div class="field">
+          <label for="profile-name">Profile Name</label>
+          <input id="profile-name" placeholder="Profile username" aria-label="Profile Name">
+        </div>
+        <div class="field">
+          <label for="profile-global-name">Display Name</label>
+          <input id="profile-global-name" placeholder="Optional display name" aria-label="Display Name">
+        </div>
+        <div class="field">
+          <label for="profile-discriminator">Discriminator</label>
+          <input id="profile-discriminator" value="0" aria-label="Discriminator">
+        </div>
+        <div class="field">
+          <label for="profile-bot">Profile Is Bot</label>
+          <input id="profile-bot" type="checkbox" aria-label="Profile Is Bot">
+        </div>
+        <div class="field full actions">
+          <button id="create-profile-btn" class="secondary" type="button">Create Profile</button>
+          <button id="save-profile-btn" class="secondary" type="button">Save Profile</button>
+          <button id="set-current-profile-btn" class="secondary" type="button">Use As Bot</button>
         </div>
       </section>
       <section class="workspace">
@@ -375,6 +411,7 @@ MOCK_UI_HTML = """<!doctype html>
       </section>
     </main>
   </div>
+  <datalist id="profile-options"></datalist>
   <script>
     const messages = document.getElementById("messages");
     const requests = document.getElementById("requests");
@@ -390,11 +427,33 @@ MOCK_UI_HTML = """<!doctype html>
     const typingCount = document.getElementById("typing-count");
     const channelCount = document.getElementById("channel-count");
     const guildCount = document.getElementById("guild-count");
+    const currentUserSelect = document.getElementById("current-user-select");
+    const profileOptions = document.getElementById("profile-options");
 
     function escapeHtml(value) {
       return String(value).replace(/[&<>"']/g, (char) => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#039;"
       }[char]));
+    }
+
+    function formatProfileValue(user) {
+      return `${user.id} | ${user.username}`;
+    }
+
+    function parseSelectedProfileId() {
+      const raw = currentUserSelect.value || "";
+      return raw.split("|")[0].trim();
+    }
+
+    function fillProfileForm(user) {
+      document.getElementById("profile-id").value = user.id || "";
+      document.getElementById("profile-name").value = user.username || "";
+      document.getElementById("profile-global-name").value = user.global_name || "";
+      document.getElementById("profile-discriminator").value = user.discriminator || "0";
+      document.getElementById("profile-bot").checked = Boolean(user.bot);
+      document.getElementById("author-id").value = user.id || "";
+      document.getElementById("author-name").value = user.username || "";
+      document.getElementById("author-bot").checked = Boolean(user.bot);
     }
 
     function renderCards(target, items, emptyText, formatter) {
@@ -408,6 +467,10 @@ MOCK_UI_HTML = """<!doctype html>
       baseUrl.textContent = state.base_url;
       gatewayUrl.textContent = state.gateway_url;
       currentUser.textContent = `${state.current_user.username} (${state.current_user.id})`;
+      currentUserSelect.value = formatProfileValue(state.current_user);
+      profileOptions.innerHTML = state.users.map((user) =>
+        `<option value="${escapeHtml(formatProfileValue(user))}"></option>`
+      ).join("");
 
       requestCount.textContent = state.requests.length;
       messageCount.textContent = state.messages.length;
@@ -426,6 +489,7 @@ MOCK_UI_HTML = """<!doctype html>
           <span class="badge">${escapeHtml(message.channel_id)}</span>
           ${message.guild_id ? `<span class="badge">${escapeHtml(message.guild_id)}</span>` : ""}
           <div class="small">${escapeHtml(message.id)}</div>
+          <div class="small">${escapeHtml(message.timestamp || "")}${message.edited_timestamp ? ` · edited ${escapeHtml(message.edited_timestamp)}` : ""}</div>
           <div class="body">${escapeHtml(message.content || "(empty message)")}</div>
         </article>
       `);
@@ -435,14 +499,22 @@ MOCK_UI_HTML = """<!doctype html>
           <strong>${escapeHtml(entry.username)}</strong>
           <span class="badge">${escapeHtml(entry.channel_id)}</span>
           <div class="small">user_id=${escapeHtml(entry.user_id)}</div>
+          <div class="small">${escapeHtml(entry.timestamp || "")}</div>
         </article>
       `);
 
       renderCards(users, state.users, "No users in state.", (user) => `
-        <article class="card">
+        <article
+          class="card"
+          data-user-id="${escapeHtml(user.id)}"
+          data-user-name="${escapeHtml(user.username || "")}"
+          data-user-global-name="${escapeHtml(user.global_name || "")}"
+          data-user-discriminator="${escapeHtml(user.discriminator || "0")}"
+          data-user-bot="${user.bot ? "1" : "0"}"
+        >
           <strong>${escapeHtml(user.username)}</strong>
           ${user.bot ? '<span class="badge">bot</span>' : ""}
-          <div class="small">${escapeHtml(user.id)}</div>
+          <div class="small">${escapeHtml(user.id)}${user.global_name ? ` · ${escapeHtml(user.global_name)}` : ""}</div>
         </article>
       `);
 
@@ -495,6 +567,18 @@ MOCK_UI_HTML = """<!doctype html>
           }
         });
       });
+
+      users.querySelectorAll("[data-user-id]").forEach((node) => {
+        node.addEventListener("click", () => {
+          fillProfileForm({
+            id: node.getAttribute("data-user-id") || "",
+            username: node.getAttribute("data-user-name") || "",
+            global_name: node.getAttribute("data-user-global-name") || "",
+            discriminator: node.getAttribute("data-user-discriminator") || "0",
+            bot: node.getAttribute("data-user-bot") === "1",
+          });
+        });
+      });
     }
 
     async function simulateMessage() {
@@ -508,6 +592,7 @@ MOCK_UI_HTML = """<!doctype html>
           guild_name: document.getElementById("guild-name").value || "Mock Guild",
           author_id: document.getElementById("author-id").value || "2",
           author_username: document.getElementById("author-name").value || "MockUser",
+          author_bot: document.getElementById("author-bot").checked,
           content: document.getElementById("content").value
         })
       });
@@ -582,12 +667,62 @@ MOCK_UI_HTML = """<!doctype html>
       await refresh();
     }
 
+    async function createProfile() {
+      const response = await fetch("/api/mock/profiles", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          id: document.getElementById("profile-id").value || undefined,
+          username: document.getElementById("profile-name").value || "Profile",
+          global_name: document.getElementById("profile-global-name").value || null,
+          discriminator: document.getElementById("profile-discriminator").value || "0",
+          bot: document.getElementById("profile-bot").checked
+        })
+      });
+      const profile = await response.json();
+      fillProfileForm(profile);
+      await refresh();
+    }
+
+    async function saveProfile() {
+      const profileId = document.getElementById("profile-id").value;
+      if (!profileId) return;
+      const response = await fetch(`/api/mock/profiles/${encodeURIComponent(profileId)}`, {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          username: document.getElementById("profile-name").value || "Profile",
+          global_name: document.getElementById("profile-global-name").value || null,
+          discriminator: document.getElementById("profile-discriminator").value || "0",
+          bot: document.getElementById("profile-bot").checked
+        })
+      });
+      const profile = await response.json();
+      fillProfileForm(profile);
+      await refresh();
+    }
+
+    async function setCurrentProfile() {
+      const profileId = document.getElementById("profile-id").value || parseSelectedProfileId();
+      if (!profileId) return;
+      await fetch("/api/mock/current-user", {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({user_id: profileId})
+      });
+      await refresh();
+    }
+
     document.getElementById("send-btn").addEventListener("click", simulateMessage);
     document.getElementById("send-bot-btn").addEventListener("click", sendBotMessage);
     document.getElementById("typing-btn").addEventListener("click", triggerTyping);
     document.getElementById("save-channel-btn").addEventListener("click", saveChannel);
     document.getElementById("edit-message-btn").addEventListener("click", editMessage);
     document.getElementById("delete-message-btn").addEventListener("click", deleteMessage);
+    document.getElementById("create-profile-btn").addEventListener("click", createProfile);
+    document.getElementById("save-profile-btn").addEventListener("click", saveProfile);
+    document.getElementById("set-current-profile-btn").addEventListener("click", setCurrentProfile);
+    currentUserSelect.addEventListener("change", setCurrentProfile);
     document.getElementById("refresh-btn").addEventListener("click", refresh);
     document.getElementById("reset-btn").addEventListener("click", resetState);
 
