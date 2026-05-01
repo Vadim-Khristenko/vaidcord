@@ -48,6 +48,20 @@ uv add "vaidcord[postgres]"
 - Use `@router.on_message_state(...)` when a flow depends on FSM state.
 - Use `MockBot` or `MockDiscordServer` for deterministic tests.
 
+## Sending messages
+
+Use message-bound helpers inside message handlers:
+
+```python
+@router.on_message()
+async def echo(message: Message) -> None:
+    await message.answer("pong")
+    await message.reply("reply pong", mention_author=False)
+```
+
+Use `Bot.send_message(channel_id, content, **kwargs)` when you only have a
+channel id or when sending from service code outside a message handler.
+
 ## Send DM to a user
 
 `Bot.send_dm(user_id, content, **kwargs)` opens or reuses the DM channel via
@@ -75,7 +89,7 @@ See runnable example: [examples/send_dm_to_user.py](examples/send_dm_to_user.py)
 
 ```python
 @router.on_message((F.message.content.startswith("!admin")) & my_role_filter)
-async def admin_handler(event: Event, role: str | None = None):
+async def admin_handler(message: Message, role: str | None = None):
     ...
 ```
 
@@ -137,26 +151,26 @@ await dp.start_webhook_many([bot_a, bot_b], drop_pending_updates=True)
 
 ```python
 from vaidcord.router import Router
-from vaidcord.types import Event
+from vaidcord.types import Message
 
 router = Router()
 
 @router.on_message()
-async def echo(event: Event) -> None:
-    await event.message.answer("pong")
+async def echo(message: Message) -> None:
+    await message.answer("pong")
 ```
 
 ```python
 from vaidcord.filters import F
 from vaidcord.router import Router
-from vaidcord.types import Event
+from vaidcord.types import Message
 
 router = Router()
 
 @router.on_message(F.message.content.startswith("/set "))
-async def set_value(event: Event, matched_text: str) -> None:
+async def set_value(message: Message, matched_text: str) -> None:
     # `matched_text` comes from filter-return payload
-    await event.message.answer(f"Got: {matched_text}")
+    await message.answer(f"Got: {matched_text}")
 ```
 
 ```python
@@ -176,9 +190,9 @@ async def trace(event: Event, next_handler: NextHandler):
 
 ```python
 from vaidcord.typing import AbstractEventHandler
-from vaidcord.types import Event
+from vaidcord.types import Message
 
-class PingHandler(AbstractEventHandler[Event]):
-    async def __call__(self, event: Event, **kwargs: object) -> None:
-        await event.message.answer("pong")
+class PingHandler(AbstractEventHandler[Message]):
+    async def __call__(self, message: Message, **kwargs: object) -> None:
+        await message.answer("pong")
 ```

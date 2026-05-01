@@ -1,9 +1,10 @@
 package vaidcord
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -22,25 +23,33 @@ func NewClient(config Config, httpClient *http.Client) *Client {
 
 func (c *Client) Endpoint(path string) string {
 	path = strings.TrimLeft(path, "/")
-	return fmt.Sprintf("%s/v%s/%s", strings.TrimRight(c.config.BaseURL, "/"), c.config.APIVersion, path)
+	return strings.TrimRight(c.config.BaseURL, "/") + "/v" + c.config.APIVersion + "/" + path
 }
 
 func (c *Client) NewRequest(ctx context.Context, method string, path string, body any) (*http.Request, error) {
+	var reader io.Reader
 	if body != nil {
-		return nil, fmt.Errorf("vaidcord-go: request bodies are not implemented yet")
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		reader = bytes.NewReader(payload)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.Endpoint(path), nil)
+	req, err := http.NewRequestWithContext(ctx, method, c.Endpoint(path), reader)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bot "+c.config.Token)
 	req.Header.Set("User-Agent", UserAgent)
 	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	return req, nil
 }
 
-func (c *Client) DoJSON(ctx context.Context, method string, path string, out any) error {
-	req, err := c.NewRequest(ctx, method, path, nil)
+func (c *Client) DoJSON(ctx context.Context, method string, path string, body any, out any) error {
+	req, err := c.NewRequest(ctx, method, path, body)
 	if err != nil {
 		return err
 	}
@@ -50,7 +59,17 @@ func (c *Client) DoJSON(ctx context.Context, method string, path string, out any
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("vaidcord-go: discord api returned status %d", resp.StatusCode)
+		payload, _ := io.ReadAll(resp.Body)
+		apiErr := &APIError{StatusCode: resp.StatusCode, Body: string(payload)}
+		var decoded struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(payload, &decoded) == nil {
+			apiErr.Code = decoded.Code
+			apiErr.Message = decoded.Message
+		}
+		return apiErr
 	}
 	if out == nil || resp.StatusCode == http.StatusNoContent {
 		return nil
@@ -60,6 +79,18 @@ func (c *Client) DoJSON(ctx context.Context, method string, path string, out any
 
 func (c *Client) GetCurrentUser(ctx context.Context) (map[string]any, error) {
 	var payload map[string]any
-	err := c.DoJSON(ctx, http.MethodGet, "/users/@me", &payload)
+	err := c.DoJSON(ctx, http.MethodGet, "/users/@me", nil, &payload)
+	return payload, err
+}
+
+func (c *Client) FetchChannel(ctx context.Context, channelID string) (map[string]any, error) {
+	var payload map[string]any
+	err := c.DoJSON(ctx, http.MethodGet, "/channels/"+channelID, nil, &payload)
+	return payload, err
+}
+
+func (c *Client) SendMessage(ctx context.Context, channelID string, message MessagePayload) (map[string]any, error) {
+	var payload map[string]any
+	err := c.DoJSON(ctx, http.MethodPost, "/channels/"+channelID+"/messages", message, &payload)
 	return payload, err
 }

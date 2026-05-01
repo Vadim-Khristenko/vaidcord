@@ -103,6 +103,18 @@ class Router:
         self._startup_handlers: list[LifecycleHandler] = []
         self._shutdown_handlers: list[LifecycleHandler] = []
         self._reconnect_handlers: list[LifecycleHandler] = []
+        self._dependencies_cache: dict[str, Any] | None = None
+        self._router_filter_cache: dict[RoutableEventType, list[RouterFilterConfig]] = {}
+        self._middleware_cache: dict[RoutableEventType, list[MiddlewareConfig]] = {}
+        self._outer_middleware_cache: dict[RoutableEventType, list[MiddlewareConfig]] = {}
+
+    def _invalidate_resolution_caches(self) -> None:
+        self._dependencies_cache = None
+        self._router_filter_cache.clear()
+        self._middleware_cache.clear()
+        self._outer_middleware_cache.clear()
+        for router in self._routers:
+            router._invalidate_resolution_caches()
 
     def _resolve_event_types(self, *event_types: RoutableEventType | str) -> list[RoutableEventType]:
         """Resolve event types from arguments."""
@@ -702,6 +714,7 @@ class Router:
 
         router._parent = self
         self._routers.append(router)
+        self._invalidate_resolution_caches()
 
     def include_routers(self, *routers: Router) -> None:
         """Aiogram-like helper to include multiple routers in one call."""
@@ -719,12 +732,16 @@ class Router:
     def provide(self, name: str, value: Any) -> None:
         """Register dependency value available for handler injection by name."""
         self._dependencies[name] = value
+        self._invalidate_resolution_caches()
 
     def _resolve_dependencies(self) -> dict[str, Any]:
+        if self._dependencies_cache is not None:
+            return dict(self._dependencies_cache)
         deps: dict[str, Any] = {}
         if self._parent is not None:
             deps.update(self._parent._resolve_dependencies())
         deps.update(self._dependencies)
+        self._dependencies_cache = deps
         return deps
 
     @staticmethod
@@ -854,6 +871,7 @@ class Router:
         )
         self._router_filters.append(config)
         self._router_filters.sort(key=lambda item: item.priority, reverse=True)
+        self._invalidate_resolution_caches()
 
     def router_filter(
         self,
@@ -876,15 +894,20 @@ class Router:
     def _resolve_router_filter_configs(
         self, event_type: RoutableEventType
     ) -> list[RouterFilterConfig]:
+        cached = self._router_filter_cache.get(event_type)
+        if cached is not None:
+            return list(cached)
         chain: list[RouterFilterConfig] = []
         if self._parent is not None:
             chain.extend(self._parent._resolve_router_filter_configs(event_type))
         chain.extend(self._router_filters)
-        return [
+        resolved = [
             item
             for item in chain
             if item.event_types is None or event_type in item.event_types
         ]
+        self._router_filter_cache[event_type] = resolved
+        return list(resolved)
 
     def register_middleware(
         self,
@@ -934,6 +957,7 @@ class Router:
         )
         self._middlewares.append(config)
         self._middlewares.sort(key=lambda item: item.priority, reverse=True)
+        self._invalidate_resolution_caches()
 
     def middleware(
         self,
@@ -971,6 +995,7 @@ class Router:
         )
         self._outer_middlewares.append(config)
         self._outer_middlewares.sort(key=lambda item: item.priority, reverse=True)
+        self._invalidate_resolution_caches()
 
     def outer_middleware(
         self,
@@ -991,15 +1016,20 @@ class Router:
     def _resolve_outer_middleware_configs(
         self, event_type: RoutableEventType
     ) -> list[MiddlewareConfig]:
+        cached = self._outer_middleware_cache.get(event_type)
+        if cached is not None:
+            return list(cached)
         chain: list[MiddlewareConfig] = []
         if self._parent is not None:
             chain.extend(self._parent._resolve_outer_middleware_configs(event_type))
         chain.extend(self._outer_middlewares)
-        return [
+        resolved = [
             item
             for item in chain
             if item.event_types is None or event_type in item.event_types
         ]
+        self._outer_middleware_cache[event_type] = resolved
+        return list(resolved)
 
     def _resolve_outer_middleware_chain(self, event_type: RoutableEventType) -> list[Middleware]:
         configs = self._resolve_outer_middleware_configs(event_type)
@@ -1040,15 +1070,20 @@ class Router:
     def _resolve_middleware_configs(
         self, event_type: RoutableEventType
     ) -> list[MiddlewareConfig]:
+        cached = self._middleware_cache.get(event_type)
+        if cached is not None:
+            return list(cached)
         chain: list[MiddlewareConfig] = []
         if self._parent is not None:
             chain.extend(self._parent._resolve_middleware_configs(event_type))
         chain.extend(self._middlewares)
-        return [
+        resolved = [
             item
             for item in chain
             if item.event_types is None or event_type in item.event_types
         ]
+        self._middleware_cache[event_type] = resolved
+        return list(resolved)
 
     def _resolve_middleware_chain(self, event_type: RoutableEventType) -> list[Middleware]:
         configs = self._resolve_middleware_configs(event_type)

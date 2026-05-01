@@ -2,6 +2,8 @@ package vaidcord
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -40,5 +42,45 @@ func TestClientGetCurrentUser(t *testing.T) {
 	}
 	if user["id"] != "42" {
 		t.Fatalf("unexpected user payload: %#v", user)
+	}
+}
+
+func TestClientSendMessageEncodesJSONAndErrors(t *testing.T) {
+	var captured map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.URL.Path != "/api/v10/channels/123/messages" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("unexpected content-type header: %s", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatal(err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"code":50035,"message":"Invalid Form Body"}`)),
+		}, nil
+	})}
+
+	client := NewClient(Config{Token: "token"}, httpClient)
+
+	_, err := client.SendMessage(context.Background(), "123", MessagePayload{Content: "hello"})
+	if err == nil {
+		t.Fatal("expected api error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected APIError, got %T", err)
+	}
+	if apiErr.Code != 50035 {
+		t.Fatalf("unexpected api error: %#v", apiErr)
+	}
+	if captured["content"] != "hello" {
+		t.Fatalf("unexpected request payload: %#v", captured)
 	}
 }

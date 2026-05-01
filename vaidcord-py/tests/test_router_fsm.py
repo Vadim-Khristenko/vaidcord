@@ -309,6 +309,37 @@ async def test_router_dependency_injection_and_filter_data_injection() -> None:
 
 
 @pytest.mark.asyncio
+async def test_router_resolution_caches_invalidate_after_registration() -> None:
+    router = Router(name="cache")
+    hits: list[str] = []
+
+    assert router._resolve_dependencies() == {}
+    router.provide("service_name", "svc")
+    assert router._resolve_dependencies() == {"service_name": "svc"}
+
+    assert router._resolve_router_filter_configs(EventType.MESSAGE_CREATE) == []
+    router.add_filter(lambda event: event.message.content == "ok")
+    assert len(router._resolve_router_filter_configs(EventType.MESSAGE_CREATE)) == 1
+
+    assert router._resolve_middleware_configs(EventType.MESSAGE_CREATE) == []
+
+    @router.middleware()
+    async def inner(event: Event, next_handler):
+        hits.append("inner")
+        return await next_handler(event)
+
+    assert len(router._resolve_middleware_configs(EventType.MESSAGE_CREATE)) == 1
+
+    @router.on_message()
+    async def handler(_event: Event, service_name: str) -> None:
+        hits.append(service_name)
+
+    await router.propagate_event(_make_message_event("ok"))
+
+    assert hits == ["inner", "svc"]
+
+
+@pytest.mark.asyncio
 async def test_handler_can_receive_only_injected_bot_dependency() -> None:
     router = Router(name="di-only")
     sentinel = object()

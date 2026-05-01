@@ -7,17 +7,20 @@ Status: **scaffold only**. The first committed surface is intentionally small:
 - Cargo package metadata
 - crate constants
 - config defaults for Discord API v10
-- request metadata builder for Discord REST calls
+- async `reqwest` HTTP client with Discord headers
+- JSON request/response helpers
+- typed Discord API errors
+- first REST helpers: `get_current_user`, `fetch_channel`, `send_message`
 
 ```rust
 let client = vaidcord::Client::new(vaidcord::Config::new("BOT_TOKEN"));
 let request = client.request_parts("GET", "/users/@me");
+let message = vaidcord::MessagePayload::text("pong");
 ```
 
 Next steps:
 
-- async HTTP transport selection
-- Discord-aware error mapping
+- richer REST resources and typed models
 - gateway identify/heartbeat loop
 - message/channel/user models
 - router and filter primitives compatible with the Python SDK mental model
