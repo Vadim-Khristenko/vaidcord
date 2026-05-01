@@ -1,5 +1,20 @@
-# VaidCord Rust (stub)
+# VaidCord Rust
 
-This directory is a placeholder for a future community-driven Rust SDK for Discord.
+Early Rust SDK scaffold for VaidCord.
 
-Status: **not implemented yet**.
+Status: **scaffold only**. The first committed surface is intentionally small:
+
+- Cargo package metadata
+- crate constants
+- config defaults for Discord API v10
+
+```rust
+let cfg = vaidcord::Config::new("BOT_TOKEN");
+```
+
+Next steps:
+
+- async HTTP client with Discord-aware headers and error mapping
+- gateway identify/heartbeat loop
+- message/channel/user models
+- router and filter primitives compatible with the Python SDK mental model

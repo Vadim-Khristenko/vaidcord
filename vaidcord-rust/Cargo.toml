@@ -1,0 +1,11 @@
+[package]
+name = "vaidcord"
+version = "0.1.0"
+edition = "2024"
+description = "Early Rust SDK scaffold for VaidCord"
+license = "MIT"
+repository = "https://github.com/Vadim-Khristenko/vaidcord"
+
+[lib]
+name = "vaidcord"
+path = "src/lib.rs"

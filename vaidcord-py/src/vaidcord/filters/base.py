@@ -31,16 +31,47 @@ class SupportsFilter(Protocol):
 
 
 
-def _invoke_filter_callable(filter_obj: SupportsFilter | FilterCallable, event: Event) -> FilterResult:
+_FILTER_CALL_STYLE_CACHE: dict[object, str] = {}
+
+
+def _filter_call_style(filter_obj: SupportsFilter | FilterCallable) -> str:
+    try:
+        cached = _FILTER_CALL_STYLE_CACHE.get(filter_obj)
+        if cached is not None:
+            return cached
+    except TypeError:
+        cached = None
     try:
         signature = inspect.signature(filter_obj)
     except (TypeError, ValueError):
-        return filter_obj(event)
-
+        call_style = "positional"
+        return _cache_filter_call_style(filter_obj, call_style)
     params = signature.parameters
     if "bot" in params:
+        call_style = "bot"
+    elif "event" in params:
+        call_style = "event"
+    else:
+        call_style = "positional"
+    return _cache_filter_call_style(filter_obj, call_style)
+
+
+def _cache_filter_call_style(
+    filter_obj: SupportsFilter | FilterCallable,
+    call_style: str,
+) -> str:
+    try:
+        _FILTER_CALL_STYLE_CACHE[filter_obj] = call_style
+    except TypeError:
+        pass
+    return call_style
+
+
+def _invoke_filter_callable(filter_obj: SupportsFilter | FilterCallable, event: Event) -> FilterResult:
+    call_style = _filter_call_style(filter_obj)
+    if call_style == "bot":
         return filter_obj(event, bot=event.bot)
-    if "event" in params:
+    if call_style == "event":
         return filter_obj(event=event)
     return filter_obj(event)
 

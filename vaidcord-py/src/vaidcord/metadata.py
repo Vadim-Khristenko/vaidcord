@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import platform
+from importlib import metadata
 
-__version__ = "0.1.0"
 __author__ = "VaidCord Team"
 LIBRARY_NAME = "vaidcord"
-PROJECT_URL = "https://github.com/vaidcord/vaidcord"
+PROJECT_URL = "https://github.com/Vadim-Khristenko/vaidcord"
+
+
+def _package_version() -> str:
+    try:
+        return metadata.version(LIBRARY_NAME)
+    except metadata.PackageNotFoundError:
+        return "0.1.0b1"
+
+
+__version__ = _package_version()
 
 
 def build_user_agent() -> str:

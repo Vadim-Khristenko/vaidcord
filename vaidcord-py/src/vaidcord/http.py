@@ -167,7 +167,8 @@ class HTTPClient:
         self._session: ClientSession | None = None
         self._rate_limits: dict[str, RateLimitInfo] = {}
         self._global_rate_limit: datetime | None = None
-        self._lock = asyncio.Lock()
+        self._global_rate_limit_lock = asyncio.Lock()
+        self._route_locks: dict[str, asyncio.Lock] = {}
         self._bot_id: str | None = None
 
     def set_bot_id(self, bot_id: str | int | None) -> None:
@@ -427,6 +428,20 @@ class HTTPClient:
             raise last_exception
         raise RuntimeError("Unexpected error in request loop")
 
+    def _get_route_lock(self, endpoint: str) -> asyncio.Lock:
+        lock = self._route_locks.get(endpoint)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._route_locks[endpoint] = lock
+        return lock
+
+    async def _wait_for_global_rate_limit(self) -> None:
+        async with self._global_rate_limit_lock:
+            if self._global_rate_limit and datetime.now() < self._global_rate_limit:
+                wait_time = (self._global_rate_limit - datetime.now()).total_seconds()
+                logger.warning(f"Waiting for global rate limit: {wait_time}s")
+                await asyncio.sleep(wait_time)
+
     async def request(
         self,
         method: str,
@@ -447,11 +462,7 @@ class HTTPClient:
         Raises:
             DiscordError: If the API returns an error
         """
-        # Check global rate limit
-        if self._global_rate_limit and datetime.now() < self._global_rate_limit:
-            wait_time = (self._global_rate_limit - datetime.now()).total_seconds()
-            logger.warning(f"Waiting for global rate limit: {wait_time}s")
-            await asyncio.sleep(wait_time)
+        await self._wait_for_global_rate_limit()
 
         # Prepare request data
         request_id = str(uuid.uuid4())
@@ -460,14 +471,15 @@ class HTTPClient:
             self._sanitize_payload(kwargs["json"]) if has_json else None
         )
 
-        response = await self._request_with_retry(
-            method,
-            endpoint,
-            request_id,
-            has_json=has_json,
-            sanitized_payload=sanitized_payload,
-            **kwargs,
-        )
+        async with self._get_route_lock(endpoint):
+            response = await self._request_with_retry(
+                method,
+                endpoint,
+                request_id,
+                has_json=has_json,
+                sanitized_payload=sanitized_payload,
+                **kwargs,
+            )
 
         # Handle error responses
         if response.status >= 400:

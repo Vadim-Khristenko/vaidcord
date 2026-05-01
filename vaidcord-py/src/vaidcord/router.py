@@ -205,6 +205,7 @@ class Router:
                 ChannelType.PRIVATE_THREAD,
                 ChannelType.NEWS_THREAD,
                 ChannelType.FORUM,
+                ChannelType.GUILD_MEDIA,
             }
 
         return self.on_message(_topic_filter, *filters, priority=priority)
@@ -1168,21 +1169,26 @@ class Router:
             self._handlers.pop(event_type, None)
 
     @staticmethod
-    def state_filter(*states: str, scope: str = "member") -> Filter:
+    def state_filter(*states: object, scope: str = "primary") -> Filter:
         """
         Build a filter that checks `event.context['fsm']` state.
         """
-        state_set = set(states)
+        state_set = {str(state) for state in states}
 
         async def _filter(event: Event) -> bool:
             if scope == "primary":
                 fsm = event.context.get("fsm")
+                resolved_scope = event.context.get("fsm_primary_scope")
             else:
                 fsm_map = event.context.get("fsm_map", {})
                 fsm = fsm_map.get(scope)
+                resolved_scope = scope
             if fsm is None:
                 return False
-            current_state = await fsm.get_state()
+            state_snapshot = event.context.get("fsm_states", {})
+            current_state = state_snapshot.get(resolved_scope)
+            if current_state is None and resolved_scope not in state_snapshot:
+                current_state = await fsm.get_state()
             return current_state in state_set
 
         return _filter
@@ -1199,10 +1205,10 @@ class Router:
 
     def on_message_state(
         self,
-        *states: str,
+        *states: object,
         priority: int = 0,
         filters: list[Filter] | None = None,
-        scope: str = "member",
+        scope: str = "primary",
     ) -> Callable[[EventHandler], EventHandler]:
         """
         Decorator that handles only MESSAGE_CREATE events in specific FSM states.

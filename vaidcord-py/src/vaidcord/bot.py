@@ -1143,6 +1143,15 @@ class Bot(Router):
     async def remove_thread_member(self, channel_id: int, user_id: int) -> dict[str, Any]:
         return await self.api_client.remove_thread_member(channel_id, user_id)
 
+    async def list_public_archived_threads(self, channel_id: int, **params: Any) -> dict[str, Any]:
+        return await self.api_client.list_public_archived_threads(channel_id, **params)
+
+    async def list_private_archived_threads(self, channel_id: int, **params: Any) -> dict[str, Any]:
+        return await self.api_client.list_private_archived_threads(channel_id, **params)
+
+    async def list_joined_private_archived_threads(self, channel_id: int, **params: Any) -> dict[str, Any]:
+        return await self.api_client.list_joined_private_archived_threads(channel_id, **params)
+
     async def fetch_guild(self, guild_id: int) -> Guild:
         """Fetch and parse a guild from the API."""
         data = await self.api_client.fetch_guild(guild_id)

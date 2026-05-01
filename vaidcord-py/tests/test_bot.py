@@ -62,6 +62,24 @@ async def test_send_message_uses_async_api(monkeypatch: pytest.MonkeyPatch) -> N
     ]
 
 
+def test_parse_channel_accepts_guild_media_type() -> None:
+    bot = Bot(token="test-token")
+
+    channel = bot._parse_channel(
+        {
+            "id": "123",
+            "guild_id": "456",
+            "type": 16,
+            "name": "media",
+            "available_tags": [{"id": "1", "name": "clips"}],
+        }
+    )
+
+    assert channel.type is ChannelType.GUILD_MEDIA
+    assert ChannelType.MEDIA is ChannelType.GUILD_MEDIA
+    assert channel.available_tags == [{"id": "1", "name": "clips"}]
+
+
 @pytest.mark.asyncio
 async def test_get_current_user_remembers_bot_id(monkeypatch: pytest.MonkeyPatch) -> None:
     bot = Bot(token="test-token")

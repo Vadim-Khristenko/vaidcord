@@ -10,7 +10,13 @@ import pytest
 
 from vaidcord.dispatcher import Dispatcher
 from vaidcord.filters import F
-from vaidcord.fsm import FSMMiddleware, FSMScope, MemoryFSMStorage, StorageKey
+from vaidcord.fsm import (
+    FSMContext,
+    FSMMiddleware,
+    FSMScope,
+    MemoryFSMStorage,
+    StorageKey,
+)
 from vaidcord.router import Router
 from vaidcord.types import (
     Channel,
@@ -90,6 +96,30 @@ async def test_message_alias_works_like_on_message() -> None:
 
     await router.propagate_event(_make_message_event())
     assert calls == ["ok"]
+
+
+@pytest.mark.asyncio
+async def test_topic_message_shortcut_accepts_media_channels() -> None:
+    router = Router()
+    calls: list[str] = []
+
+    @router.on_topic_message()
+    async def handler(_event: Event) -> None:
+        calls.append("media")
+
+    event = _make_message_event("media")
+    event.channel = Channel(id=200, type=ChannelType.GUILD_MEDIA)
+    event.message = Message(
+        id=300,
+        channel=event.channel,
+        author=event.user,
+        content="media",
+        timestamp=datetime.now(),
+    )
+
+    await router.propagate_event(event)
+
+    assert calls == ["media"]
 
 
 @pytest.mark.asyncio
@@ -189,6 +219,49 @@ async def test_fsm_state_filter_works_for_member_and_channel_scopes() -> None:
 
     await router.propagate_event(_make_message_event("hello"))
     assert captured == ["member", "channel"]
+
+
+@pytest.mark.asyncio
+async def test_fsm_state_handlers_use_pre_event_snapshot() -> None:
+    storage = MemoryFSMStorage()
+    router = Router(name="fsm")
+    router.add_outer_middleware(FSMMiddleware(storage=storage))
+    captured: list[str] = []
+
+    @router.on_message_create()
+    async def start(_event: Event, fsm: FSMContext) -> None:
+        captured.append("start")
+        await fsm.set_state("profile:name")
+
+    @router.on_message_state("profile:name")
+    async def capture(_event: Event) -> None:
+        captured.append("capture")
+
+    event = _make_message_event("/profile")
+    await router.propagate_event(event)
+    await router.propagate_event(_make_message_event("Alice"))
+
+    assert captured == ["start", "start", "capture"]
+
+
+@pytest.mark.asyncio
+async def test_fsm_state_filter_defaults_to_primary_scope_for_dm_flows() -> None:
+    storage = MemoryFSMStorage()
+    router = Router(name="fsm")
+    router.add_outer_middleware(FSMMiddleware(storage=storage))
+    captured: list[str] = []
+
+    event = _make_message_event("Alice")
+    event.data.pop("guild_id", None)
+    await storage.set_state(StorageKey.user(100), "profile:name")
+
+    @router.on_message_state("profile:name")
+    async def capture(_event: Event) -> None:
+        captured.append("capture")
+
+    await router.propagate_event(event)
+
+    assert captured == ["capture"]
 
 
 @pytest.mark.asyncio

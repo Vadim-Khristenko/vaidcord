@@ -1,0 +1,151 @@
+name: Publish Python package to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "py-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release. Empty = v{pyproject version}"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-vaidcord-py-${{ github.ref_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build, release and publish vaidcord-py
+    runs-on: ubuntu-latest
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/vaidcord-py
+
+    permissions:
+      contents: write      # create/update GitHub Release
+      id-token: write      # PyPI Trusted Publishing / OIDC
+
+    defaults:
+      run:
+        working-directory: vaidcord-py
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: vaidcord-py/pyproject.toml
+
+      - name: Validate release tag matches package version
+        id: meta
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path("pyproject.toml").read_bytes())["project"]["version"]
+
+          event_name = os.environ["GITHUB_EVENT_NAME"]
+          ref_name = os.environ.get("GITHUB_REF_NAME", "")
+          dispatch_tag = os.environ.get("DISPATCH_TAG", "").strip()
+
+          if event_name == "workflow_dispatch":
+              tag = dispatch_tag or f"v{version}"
+          else:
+              tag = ref_name
+
+          accepted = {f"v{version}", f"py-v{version}", version}
+          if tag not in accepted:
+              raise SystemExit(
+                  f"Release tag {tag!r} does not match pyproject version {version!r}. "
+                  f"Use one of: {', '.join(sorted(accepted))}"
+              )
+
+          prerelease = bool(re.search(r"(a|b|rc|dev)", version))
+
+          def out(name: str, value: str) -> None:
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+                  fh.write(f"{name}={value}\n")
+
+          out("version", version)
+          out("tag", tag)
+          out("prerelease", str(prerelease).lower())
+          PY
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip build twine
+
+      - name: Build distributions
+        run: |
+          python -m build
+
+      - name: Check distributions
+        run: |
+          python -m twine check dist/*
+
+      - name: Generate release notes
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          VERSION="${{ steps.meta.outputs.version }}"
+
+          PREVIOUS_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          if [ -n "$PREVIOUS_TAG" ]; then
+            RANGE="$PREVIOUS_TAG..HEAD"
+            COMPARE_TEXT="Changes since \`$PREVIOUS_TAG\`."
+          else
+            RANGE="HEAD"
+            COMPARE_TEXT="Initial release notes generated from available commit history."
+          fi
+
+          {
+            echo "# VAIDCORD-PY ${VERSION}"
+            echo
+            echo "${COMPARE_TEXT}"
+            echo
+            echo "## Commits"
+            echo
+            git log --no-merges --pretty=format:'- %s (`%h`) — %an' "$RANGE"
+            echo
+            echo
+            echo "## Distribution files"
+            echo
+            for file in dist/*; do
+              echo "- \`$(basename "$file")\`"
+            done
+          } > ../release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: VAIDCORD-PY ${{ steps.meta.outputs.version }}
+          body_path: release-notes.md
+          generate_release_notes: true
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          files: vaidcord-py/dist/*
+          fail_on_unmatched_files: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: vaidcord-py/dist

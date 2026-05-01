@@ -28,6 +28,8 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import aiohttp
 
+from vaidcord.metadata import build_user_agent
+
 
 class OAuth2Scope(str, Enum):
     """OAuth2 scopes supported by Discord."""
@@ -164,7 +166,7 @@ class OAuth2Config:
 
     def __post_init__(self) -> None:
         if self.user_agent is None:
-            self.user_agent = "DiscordBot (https://github.com/vaidcord/vaidcord, 0.1.0)"
+            self.user_agent = build_user_agent()
 
     @property
     def token_url(self) -> str:

@@ -66,17 +66,54 @@ async def test_bot_resource_wrappers_delegate_to_api_client(
         calls.append(("create_interaction_response", args, kwargs))
         return {"ok": True}
 
+    async def fake_list_public_archived_threads(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        calls.append(("list_public_archived_threads", args, kwargs))
+        return {"threads": []}
+
+    async def fake_list_private_archived_threads(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        calls.append(("list_private_archived_threads", args, kwargs))
+        return {"threads": []}
+
+    async def fake_list_joined_private_archived_threads(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        calls.append(("list_joined_private_archived_threads", args, kwargs))
+        return {"threads": []}
+
     monkeypatch.setattr(bot.api_client, "execute_webhook", fake_execute_webhook)
     monkeypatch.setattr(
         bot.api_client,
         "create_interaction_response",
         fake_create_interaction_response,
     )
+    monkeypatch.setattr(
+        bot.api_client,
+        "list_public_archived_threads",
+        fake_list_public_archived_threads,
+    )
+    monkeypatch.setattr(
+        bot.api_client,
+        "list_private_archived_threads",
+        fake_list_private_archived_threads,
+    )
+    monkeypatch.setattr(
+        bot.api_client,
+        "list_joined_private_archived_threads",
+        fake_list_joined_private_archived_threads,
+    )
 
     await bot.execute_webhook(7, "token", content="hello")
     await bot.create_interaction_response(4, "itoken", type=4)
+    await bot.list_public_archived_threads(10, before="2026-01-01T00:00:00.000000+00:00")
+    await bot.list_private_archived_threads(11, limit=10)
+    await bot.list_joined_private_archived_threads(12)
 
     assert calls == [
         ("execute_webhook", (7, "token", {"content": "hello"}), {}),
         ("create_interaction_response", (4, "itoken", {"type": 4}), {}),
+        (
+            "list_public_archived_threads",
+            (10,),
+            {"before": "2026-01-01T00:00:00.000000+00:00"},
+        ),
+        ("list_private_archived_threads", (11,), {"limit": 10}),
+        ("list_joined_private_archived_threads", (12,), {}),
     ]

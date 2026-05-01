@@ -84,8 +84,14 @@ class MagicFilter:
     def __le__(self, value: Any) -> FilterExpr:
         return self._cmp(lambda current: current is not None and current <= value)
 
-    def in_(self, values: Iterable[Any]) -> FilterExpr: return self._cmp(lambda current: current in set(values))
-    def not_in(self, values: Iterable[Any]) -> FilterExpr: return self._cmp(lambda current: current not in set(values))
+    def in_(self, values: Iterable[Any]) -> FilterExpr:
+        lookup = set(values)
+        return self._cmp(lambda current: current in lookup)
+
+    def not_in(self, values: Iterable[Any]) -> FilterExpr:
+        lookup = set(values)
+        return self._cmp(lambda current: current not in lookup)
+
     def contains(self, value: Any) -> FilterExpr: return self._cmp(lambda current: current is not None and value in current)
 
     def startswith(self, prefix: str) -> FilterExpr:
@@ -134,7 +140,8 @@ class MagicFilter:
         return self.regex(pattern, flags=flags)
 
     def bot_id_in(self, bot_ids: Iterable[int]) -> FilterExpr:
-        return self._cmp(lambda current: getattr(current, "id", None) in set(bot_ids))
+        lookup = set(bot_ids)
+        return self._cmp(lambda current: getattr(current, "id", None) in lookup)
 
     def bot_username_in(self, usernames: Iterable[str]) -> FilterExpr:
         normalized = {u.lower() for u in usernames}

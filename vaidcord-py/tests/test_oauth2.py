@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pytest
 
+from vaidcord.metadata import PROJECT_URL, __version__
 from vaidcord.oauth2 import (
     IntegrationType,
     OAuth2Client,
@@ -66,6 +67,16 @@ class TestOAuth2Config:
 
         assert config.base_url == "https://custom-discord.example.com/api"
         assert config.token_url.startswith("https://custom-discord.example.com/api")
+
+    def test_default_user_agent_uses_package_metadata(self):
+        config = OAuth2Config(
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            redirect_uri="https://example.com/callback",
+        )
+
+        assert PROJECT_URL in config.user_agent
+        assert f"vaidcord/{__version__}" in config.user_agent
 
 
 class TestOAuth2Token:

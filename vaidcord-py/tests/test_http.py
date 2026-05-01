@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Any
 
 import aiohttp
@@ -8,7 +10,7 @@ import pytest
 
 from vaidcord.errors import ForbiddenError, RateLimitError
 from vaidcord.http import DiscordError, HTTPClient, HTTPConfig
-from vaidcord.metadata import __version__
+from vaidcord.metadata import PROJECT_URL, __version__, build_user_agent
 
 
 def test_discord_error_is_raisable() -> None:
@@ -56,6 +58,12 @@ def test_http_config_uses_library_metadata_headers() -> None:
     assert "Content-Type" not in client.headers
 
 
+def test_metadata_user_agent_uses_canonical_repository_url() -> None:
+    assert PROJECT_URL == "https://github.com/Vadim-Khristenko/vaidcord"
+    assert PROJECT_URL in build_user_agent()
+    assert f"vaidcord/{__version__}" in build_user_agent()
+
+
 @pytest.mark.asyncio
 async def test_http_request_keeps_aiohttp_json_path(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
@@ -78,6 +86,36 @@ async def test_http_request_keeps_aiohttp_json_path(monkeypatch: pytest.MonkeyPa
 
     assert captured["json"] == {"content": "hello"}
     assert "data" not in captured
+
+
+@pytest.mark.asyncio
+async def test_http_request_locks_only_matching_routes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vaidcord.http import HTTPResponseData
+
+    client = HTTPClient(HTTPConfig(token="token"))
+    calls: list[str] = []
+
+    async def slow_request(
+        method: str,
+        endpoint: str,
+        request_id: str,
+        **kwargs: Any,
+    ) -> HTTPResponseData:
+        calls.append(endpoint)
+        await asyncio.sleep(0.05)
+        return HTTPResponseData(status=204, headers={}, body=b"")
+
+    monkeypatch.setattr(client, "_request_with_retry", slow_request)
+
+    started = time.perf_counter()
+    await asyncio.gather(
+        client.request("GET", "/channels/1"),
+        client.request("GET", "/channels/2"),
+    )
+    elapsed = time.perf_counter() - started
+
+    assert calls == ["/channels/1", "/channels/2"]
+    assert elapsed < 0.09
 
 
 @pytest.mark.asyncio

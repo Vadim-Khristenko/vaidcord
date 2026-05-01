@@ -83,6 +83,7 @@ class FSMMiddleware:
             primary = fsm_map.get(self.primary_scope)
             primary_scope = self.primary_scope if primary is not None else next(iter(fsm_map))
             event.context["fsm"] = primary or fsm_map[primary_scope]
+            event.context["fsm_primary_scope"] = primary_scope
             event.context["fsm_state"] = event.context["fsm_states"].get(primary_scope)
 
         return await handler(event)

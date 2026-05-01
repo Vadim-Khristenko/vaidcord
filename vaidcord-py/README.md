@@ -2,6 +2,8 @@
 
 VaidCord is a Python Discord SDK built around a small set of composable pieces: Bot, Dispatcher, Router, filters, middleware, and FSM.
 
+Current package status: **Beta** (`0.1.0b1`).
+
 ## Why it exists
 
 - Predictable routing with feature-oriented routers.
@@ -89,6 +91,30 @@ await dp.start_webhook_many([bot_a, bot_b], drop_pending_updates=True)
 
 `Dispatcher()` auto-registers FSM middleware. If you do not pass storage, it uses in-memory storage by default.
 
+## Support status
+
+| Area | Status | Notes |
+| --- | --- | --- |
+| Gateway lifecycle | supported | Identify, heartbeat, reconnect-oriented runtime, typed common events. |
+| Messages | supported | Send, reply, edit, delete, reactions, pins, polls, and typed message events. |
+| Channels and threads | partial | Core channel, invite, permission overwrite, and thread helpers exist; keep checking Discord parity as new fields/routes land. |
+| Guilds and users | partial | Common fetch/update/list helpers exist; advanced administration is still expanding. |
+| Interactions | partial | Low-level interaction callback/follow-up helpers exist; high-level decorator command sync is planned. |
+| OAuth2 | supported | URL, token, refresh, revoke, and userinfo helpers. |
+| FSM | supported | Scoped storage with memory, SQLite, Redis, Mongo, and Postgres backends. |
+| Mock server/testing | supported | Local mock server, mock bot, builders, and deterministic test helpers. |
+| Multi-bot startup | experimental | `start_polling_many` and `start_webhook_many` are covered by regression tests, but large deployments should load-test their router/middleware mix. |
+| Voice | planned | Voice event shortcuts exist; voice gateway, UDP, speaking state, and audio transport are not implemented yet. |
+
+## Performance and memory notes
+
+- Prefer one `Dispatcher` with feature routers over duplicating large router trees per bot.
+- Use external FSM storage for long-lived or multi-process state; in-memory storage is fastest but process-local.
+- Keep filters cheap on high-volume routes. Expensive I/O belongs in handlers or middleware after narrow filters pass.
+- Avoid storing large Discord payloads in `event.context`; pass IDs or compact service objects instead.
+- For benchmarks, measure event propagation with representative middleware/filter counts and HTTP concurrency with real route mixes.
+- Contributors should avoid per-event introspection and avoid unnecessary object copies in parser, filter, and router hot paths.
+
 ## Feature map
 
 - [docs/PYTHON_DRIVER.md](docs/PYTHON_DRIVER.md) - architecture, DI, filters, middleware, FSM, lifecycle
@@ -96,6 +122,7 @@ await dp.start_webhook_many([bot_a, bot_b], drop_pending_updates=True)
 - [docs/MIDDLEWARE.md](docs/MIDDLEWARE.md) - outer/inner middleware model and FSM as system middleware
 - [docs/APPLICATION_API.md](docs/APPLICATION_API.md) - Discord application resources and role connection metadata
 - [docs/OAUTH2.md](docs/OAUTH2.md) - OAuth2 helpers and token workflows
+- [docs/PUBLISHING.md](docs/PUBLISHING.md) - beta versioning and PyPI trusted publishing workflow
 - [examples/README.md](examples/README.md) - quick index of runnable examples
 
 ## Typing guide

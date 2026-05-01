@@ -158,6 +158,7 @@ class ChannelType(Enum):
     STAGE = 13
     DIRECTORY = 14
     FORUM = 15
+    GUILD_MEDIA = 16
     MEDIA = 16
 
 @dataclass(frozen=True)
