@@ -28,7 +28,7 @@ def build_dispatcher() -> Dispatcher:
     feature_router.provide("service_name", "support")
     admin_router.provide("admin_label", "[ADMIN]")
 
-    @feature_router.middleware(priority=100)
+    @feature_router.outer_middleware(priority=100)
     async def trace_runtime(event: Event, handler: NextHandler) -> object:
         started_at = perf_counter()
         event.context["trace_started_at"] = started_at
