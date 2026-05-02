@@ -116,3 +116,81 @@ func TestClientSendMessageDecodesTypedMessage(t *testing.T) {
 		t.Fatalf("unexpected typed message: %#v", message)
 	}
 }
+
+func TestClientBulkOverwriteGlobalCommands(t *testing.T) {
+	var captured []map[string]any
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPut {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.URL.Path != "/api/v10/applications/42/commands" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatal(err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`[{"id":"1","name":"start","type":1}]`)),
+		}, nil
+	})}
+
+	client := NewClient(Config{Token: "token"}, httpClient)
+	commands, err := client.BulkOverwriteGlobalCommands(
+		context.Background(),
+		"42",
+		[]map[string]any{{"name": "start", "type": 1, "description": "Start bot"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 1 || commands[0]["name"] != "start" {
+		t.Fatalf("unexpected commands response: %#v", commands)
+	}
+	if len(captured) != 1 || captured[0]["name"] != "start" {
+		t.Fatalf("unexpected request payload: %#v", captured)
+	}
+}
+
+func TestClientBulkOverwriteGuildCommands(t *testing.T) {
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPut {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if r.URL.Path != "/api/v10/applications/42/guilds/777/commands" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`[{"id":"1","name":"ping","type":1}]`)),
+		}, nil
+	})}
+
+	client := NewClient(Config{Token: "token"}, httpClient)
+	commands, err := client.BulkOverwriteGuildCommands(
+		context.Background(),
+		"42",
+		"777",
+		[]map[string]any{{"name": "ping", "type": 1, "description": "Ping"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 1 || commands[0]["name"] != "ping" {
+		t.Fatalf("unexpected commands response: %#v", commands)
+	}
+}
+
+func TestVoiceCloseCodeReconnectPolicy(t *testing.T) {
+	if VoiceCloseE2EEDaveRequired != 4017 {
+		t.Fatalf("unexpected DAVE required close code: %d", VoiceCloseE2EEDaveRequired)
+	}
+	if VoiceCloseDisconnected.ShouldReconnect() {
+		t.Fatal("disconnect close code should not reconnect")
+	}
+	if !VoiceCloseVoiceServerCrashed.ShouldReconnect() {
+		t.Fatal("server crash close code should reconnect")
+	}
+}

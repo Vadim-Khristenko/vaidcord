@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 
 from vaidcord.bot import Bot, BotState, GatewayIntent
-from vaidcord.errors import DiscordAPIError, ForbiddenError
+from vaidcord.errors import DiscordAPIError, ForbiddenError, RateLimitError
 from vaidcord.gateway_runtime import GatewayRuntime
 from vaidcord.logging import get_default_bot_id, set_default_bot_id
 from vaidcord.metadata import __version__
@@ -264,6 +264,375 @@ async def test_reply_can_disable_author_mention(monkeypatch: pytest.MonkeyPatch)
     )
 
     assert calls[0]["allowed_mentions"] == {"replied_user": False}
+
+
+@pytest.mark.asyncio
+async def test_slash_command_sync_uses_diff_and_bulk_overwrite(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = Bot(token="test-token")
+    await bot._handle_ready(
+        {
+            "user": {"id": "42", "username": "vaidcord-bot", "discriminator": "0"},
+            "guilds": [],
+            "session_id": "abc",
+        }
+    )
+    bot.config.auto_sync_commands = False
+
+    @bot.slash_command(name="ping", description="Ping", guild_id=888)
+    async def ping(_: dict[str, Any]) -> None:
+        return None
+
+    @bot.slash_command(name="start", description="Start bot")
+    async def start(_: dict[str, Any]) -> None:
+        return None
+
+    calls: list[tuple[str, tuple[Any, ...]]] = []
+
+    async def fake_list_global(application_id: int, **_: Any) -> list[dict[str, Any]]:
+        calls.append(("list_global", (application_id,)))
+        return [{"id": "1", "type": 1, "name": "start", "description": "Old"}]
+
+    async def fake_overwrite_global(application_id: int, commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        calls.append(("overwrite_global", (application_id, commands)))
+        return commands
+
+    async def fake_list_guild(application_id: int, guild_id: int, **_: Any) -> list[dict[str, Any]]:
+        calls.append(("list_guild", (application_id, guild_id)))
+        return []
+
+    async def fake_overwrite_guild(
+        application_id: int, guild_id: int, commands: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        calls.append(("overwrite_guild", (application_id, guild_id, commands)))
+        return commands
+
+    monkeypatch.setattr(bot.api_client, "list_global_commands", fake_list_global)
+    monkeypatch.setattr(bot.api_client, "bulk_overwrite_global_commands", fake_overwrite_global)
+    monkeypatch.setattr(bot.api_client, "list_guild_commands", fake_list_guild)
+    monkeypatch.setattr(bot.api_client, "bulk_overwrite_guild_commands", fake_overwrite_guild)
+
+    await bot.sync_application_commands()
+
+    assert calls[0] == ("list_global", (42,))
+    assert calls[1][0] == "overwrite_global"
+    assert calls[1][1][1] == [{"type": 1, "name": "start", "description": "Start bot"}]
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_overwrite_when_payloads_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = Bot(token="test-token")
+    await bot._handle_ready(
+        {
+            "user": {"id": "42", "username": "vaidcord-bot", "discriminator": "0"},
+            "guilds": [],
+            "session_id": "abc",
+        }
+    )
+    bot.config.auto_sync_commands = False
+
+    @bot.slash_command(name="start", description="Start bot")
+    async def start(_: dict[str, Any]) -> None:
+        return None
+
+    overwrite_called = False
+
+    async def fake_list_global(application_id: int, **_: Any) -> list[dict[str, Any]]:
+        assert application_id == 42
+        return [{"id": "1", "application_id": "42", "type": 1, "name": "start", "description": "Start bot"}]
+
+    async def fake_overwrite_global(application_id: int, commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        nonlocal overwrite_called
+        overwrite_called = True
+        return commands
+
+    monkeypatch.setattr(bot.api_client, "list_global_commands", fake_list_global)
+    monkeypatch.setattr(bot.api_client, "bulk_overwrite_global_commands", fake_overwrite_global)
+
+    await bot.sync_application_commands()
+    assert overwrite_called is False
+
+
+@pytest.mark.asyncio
+async def test_interaction_create_dispatches_registered_command() -> None:
+    bot = Bot(token="test-token")
+    handled: list[str] = []
+
+    @bot.slash_command(name="echo", description="Echo")
+    async def echo(payload: dict[str, Any]) -> None:
+        handled.append(payload["data"]["name"])
+
+    await bot._handle_interaction_create(
+        {
+            "type": 2,
+            "data": {"name": "echo", "type": 1},
+        }
+    )
+    assert handled == ["echo"]
+
+
+@pytest.mark.asyncio
+async def test_interaction_context_exposes_options() -> None:
+    bot = Bot(token="test-token")
+    seen: list[dict[str, Any]] = []
+
+    @bot.slash_command(name="echo", description="Echo")
+    async def echo(ctx) -> None:
+        seen.append(ctx.options)
+
+    await bot._handle_interaction_create(
+        {
+            "type": 2,
+            "guild_id": "123",
+            "data": {
+                "name": "echo",
+                "type": 1,
+                "options": [
+                    {"name": "text", "type": 3, "value": "hello"},
+                    {"name": "count", "type": 4, "value": 2},
+                ],
+            },
+        }
+    )
+    assert seen == [{"text": "hello", "count": 2}]
+
+
+@pytest.mark.asyncio
+async def test_interaction_context_typed_options() -> None:
+    bot = Bot(token="test-token")
+    seen: list[tuple[str, int, bool, float]] = []
+
+    @bot.slash_command(name="echo", description="Echo")
+    async def echo(ctx) -> None:
+        seen.append(
+            (
+                ctx.require_str("text"),
+                ctx.require_int("count"),
+                ctx.require_bool("enabled"),
+                ctx.require_float("ratio"),
+            )
+        )
+
+    await bot._handle_interaction_create(
+        {
+            "type": 2,
+            "data": {
+                "name": "echo",
+                "type": 1,
+                "options": [
+                    {"name": "text", "type": 3, "value": "hello"},
+                    {"name": "count", "type": 4, "value": 2},
+                    {"name": "enabled", "type": 5, "value": True},
+                    {"name": "ratio", "type": 10, "value": 0.5},
+                ],
+            },
+        }
+    )
+    assert seen == [("hello", 2, True, 0.5)]
+
+
+def test_interaction_context_missing_required_option() -> None:
+    from vaidcord.commands import CommandContext
+
+    ctx = CommandContext(raw={"type": 2, "data": {"name": "echo", "type": 1}})
+    with pytest.raises(KeyError):
+        ctx.require_str("text")
+
+
+def test_application_command_payload_supports_modern_context_fields() -> None:
+    bot = Bot(token="test-token")
+
+    @bot.slash_command(
+        name="profile",
+        description="Profile",
+        name_localizations={"en-GB": "profile"},
+        description_localizations={"en-GB": "Profile"},
+        integration_types=[0, 1],
+        contexts=[0, 1, 2],
+        nsfw=False,
+        options=[{"name": "user", "description": "User", "type": 6, "required": True}],
+    )
+    async def profile(_: dict[str, Any]) -> None:
+        return None
+
+    payload = bot._registered_commands[-1].to_payload()
+
+    assert payload["name_localizations"] == {"en-GB": "profile"}
+    assert payload["description_localizations"] == {"en-GB": "Profile"}
+    assert payload["integration_types"] == [0, 1]
+    assert payload["contexts"] == [0, 1, 2]
+    assert payload["nsfw"] is False
+
+
+def test_user_and_message_commands_do_not_emit_description() -> None:
+    bot = Bot(token="test-token")
+
+    @bot.user_command(name="View Stats", contexts=[0])
+    async def view_stats(_: dict[str, Any]) -> None:
+        return None
+
+    @bot.message_command(name="Bookmark", contexts=[0])
+    async def bookmark(_: dict[str, Any]) -> None:
+        return None
+
+    user_payload = bot._registered_commands[-2].to_payload()
+    message_payload = bot._registered_commands[-1].to_payload()
+
+    assert "description" not in user_payload
+    assert "description" not in message_payload
+    assert user_payload["type"] == 2
+    assert message_payload["type"] == 3
+
+
+@pytest.mark.asyncio
+async def test_sync_uses_dev_guild_for_global_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = Bot(token="test-token", command_dev_guild_id=777)
+    await bot._handle_ready(
+        {
+            "user": {"id": "42", "username": "vaidcord-bot", "discriminator": "0"},
+            "guilds": [],
+            "session_id": "abc",
+        }
+    )
+    bot.config.auto_sync_commands = False
+
+    @bot.slash_command(name="start", description="Start bot")
+    async def start(_: dict[str, Any]) -> None:
+        return None
+
+    calls: list[tuple[str, tuple[Any, ...]]] = []
+
+    async def fake_list_global(application_id: int, **_: Any) -> list[dict[str, Any]]:
+        calls.append(("list_global", (application_id,)))
+        return []
+
+    async def fake_list_guild(application_id: int, guild_id: int, **_: Any) -> list[dict[str, Any]]:
+        calls.append(("list_guild", (application_id, guild_id)))
+        return []
+
+    async def fake_overwrite_global(application_id: int, commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        calls.append(("overwrite_global", (application_id, commands)))
+        return commands
+
+    async def fake_overwrite_guild(
+        application_id: int, guild_id: int, commands: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        calls.append(("overwrite_guild", (application_id, guild_id, commands)))
+        return commands
+
+    monkeypatch.setattr(bot.api_client, "list_global_commands", fake_list_global)
+    monkeypatch.setattr(bot.api_client, "list_guild_commands", fake_list_guild)
+    monkeypatch.setattr(bot.api_client, "bulk_overwrite_global_commands", fake_overwrite_global)
+    monkeypatch.setattr(bot.api_client, "bulk_overwrite_guild_commands", fake_overwrite_guild)
+
+    await bot.sync_application_commands()
+    assert ("overwrite_global", (42, [])) not in calls
+    assert ("overwrite_guild", (42, 777, [{"type": 1, "name": "start", "description": "Start bot"}])) in calls
+
+
+@pytest.mark.asyncio
+async def test_sync_merge_mode_keeps_existing_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = Bot(token="test-token", command_sync_mode="merge")
+    await bot._handle_ready(
+        {
+            "user": {"id": "42", "username": "vaidcord-bot", "discriminator": "0"},
+            "guilds": [],
+            "session_id": "abc",
+        }
+    )
+    bot.config.auto_sync_commands = False
+
+    @bot.slash_command(name="ping", description="Ping")
+    async def ping(_: dict[str, Any]) -> None:
+        return None
+
+    captured: list[dict[str, Any]] = []
+
+    async def fake_list_global(application_id: int, **_: Any) -> list[dict[str, Any]]:
+        assert application_id == 42
+        return [{"id": "1", "type": 1, "name": "legacy", "description": "Legacy"}]
+
+    async def fake_overwrite_global(application_id: int, commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        assert application_id == 42
+        captured.extend(commands)
+        return commands
+
+    monkeypatch.setattr(bot.api_client, "list_global_commands", fake_list_global)
+    monkeypatch.setattr(bot.api_client, "bulk_overwrite_global_commands", fake_overwrite_global)
+
+    await bot.sync_application_commands()
+    names = {item["name"] for item in captured}
+    assert names == {"legacy", "ping"}
+
+
+@pytest.mark.asyncio
+async def test_sync_replace_can_clean_explicit_guild_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = Bot(token="test-token", command_sync_guild_ids=(777,))
+    await bot._handle_ready(
+        {
+            "user": {"id": "42", "username": "vaidcord-bot", "discriminator": "0"},
+            "guilds": [],
+            "session_id": "abc",
+        }
+    )
+    bot.config.auto_sync_commands = False
+
+    @bot.slash_command(name="ping", description="Ping", guild_id=888)
+    async def ping(_: dict[str, Any]) -> None:
+        return None
+
+    async def fake_list_global(application_id: int, **_: Any) -> list[dict[str, Any]]:
+        return []
+
+    async def fake_list_guild(application_id: int, guild_id: int, **_: Any) -> list[dict[str, Any]]:
+        if guild_id == 777:
+            return [{"id": "1", "type": 1, "name": "old", "description": "old"}]
+        return []
+
+    captured: list[list[dict[str, Any]]] = []
+
+    async def fake_overwrite_guild(
+        application_id: int, guild_id: int, commands: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        captured.append(commands)
+        return commands
+
+    monkeypatch.setattr(bot.api_client, "list_global_commands", fake_list_global)
+    monkeypatch.setattr(bot.api_client, "list_guild_commands", fake_list_guild)
+    monkeypatch.setattr(bot.api_client, "bulk_overwrite_guild_commands", fake_overwrite_guild)
+
+    await bot.sync_application_commands()
+    assert [] in captured
+
+
+@pytest.mark.asyncio
+async def test_sync_rate_limit_schedules_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = Bot(token="test-token")
+    await bot._handle_ready(
+        {
+            "user": {"id": "42", "username": "vaidcord-bot", "discriminator": "0"},
+            "guilds": [],
+            "session_id": "abc",
+        }
+    )
+    bot.config.auto_sync_commands = False
+
+    @bot.slash_command(name="ping", description="Ping")
+    async def ping(_: dict[str, Any]) -> None:
+        return None
+
+    async def raise_rate_limit() -> None:
+        raise RateLimitError("rate limited", retry_after=2.5)
+
+    scheduled: list[float] = []
+
+    def remember(delay: float) -> None:
+        scheduled.append(delay)
+
+    monkeypatch.setattr(bot, "_sync_application_commands_once", raise_rate_limit)
+    monkeypatch.setattr(bot, "_schedule_command_sync_retry", remember)
+
+    await bot.sync_application_commands()
+    assert scheduled == [2.5]
 
 
 @pytest.mark.asyncio

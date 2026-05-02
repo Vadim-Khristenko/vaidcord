@@ -1,4 +1,5 @@
 use serde::{Serialize, de::DeserializeOwned};
+use serde_json::Value;
 
 use crate::USER_AGENT;
 use crate::config::Config;
@@ -28,6 +29,10 @@ impl Client {
 
     pub fn with_http_client(config: Config, http: reqwest::Client) -> Self {
         Self { config, http }
+    }
+
+    pub fn config(&self) -> &Config {
+        &self.config
     }
 
     pub fn endpoint(&self, path: &str) -> String {
@@ -123,6 +128,58 @@ impl Client {
         )
         .await
     }
+
+    pub async fn list_global_commands(
+        &self,
+        application_id: impl std::fmt::Display,
+    ) -> Result<Vec<Value>, Error> {
+        self.request_json::<Vec<Value>, MessagePayload>(
+            reqwest::Method::GET,
+            &format!("/applications/{application_id}/commands"),
+            None,
+        )
+        .await
+    }
+
+    pub async fn bulk_overwrite_global_commands(
+        &self,
+        application_id: impl std::fmt::Display,
+        commands: &[Value],
+    ) -> Result<Vec<Value>, Error> {
+        self.request_json(
+            reqwest::Method::PUT,
+            &format!("/applications/{application_id}/commands"),
+            Some(commands),
+        )
+        .await
+    }
+
+    pub async fn list_guild_commands(
+        &self,
+        application_id: impl std::fmt::Display,
+        guild_id: impl std::fmt::Display,
+    ) -> Result<Vec<Value>, Error> {
+        self.request_json::<Vec<Value>, MessagePayload>(
+            reqwest::Method::GET,
+            &format!("/applications/{application_id}/guilds/{guild_id}/commands"),
+            None,
+        )
+        .await
+    }
+
+    pub async fn bulk_overwrite_guild_commands(
+        &self,
+        application_id: impl std::fmt::Display,
+        guild_id: impl std::fmt::Display,
+        commands: &[Value],
+    ) -> Result<Vec<Value>, Error> {
+        self.request_json(
+            reqwest::Method::PUT,
+            &format!("/applications/{application_id}/guilds/{guild_id}/commands"),
+            Some(commands),
+        )
+        .await
+    }
 }
 
 fn build_http_client(config: &Config) -> reqwest::Client {
@@ -166,5 +223,23 @@ mod tests {
         let config = Config::new("token").with_proxy_url("http://127.0.0.1:8080");
 
         assert_eq!(config.proxy_url.as_deref(), Some("http://127.0.0.1:8080"));
+    }
+
+    #[test]
+    fn global_commands_endpoint_is_built_correctly() {
+        let client = Client::new(Config::new("token"));
+        assert_eq!(
+            client.endpoint("/applications/42/commands"),
+            "https://discord.com/api/v10/applications/42/commands"
+        );
+    }
+
+    #[test]
+    fn guild_commands_endpoint_is_built_correctly() {
+        let client = Client::new(Config::new("token"));
+        assert_eq!(
+            client.endpoint("/applications/42/guilds/777/commands"),
+            "https://discord.com/api/v10/applications/42/guilds/777/commands"
+        );
     }
 }

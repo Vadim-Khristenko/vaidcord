@@ -7,7 +7,7 @@ fn main() -> Result<(), vaidcord::Error> {
             println!("{}", vaidcord::inline_code(&message.content));
             Ok(())
         },
-        filters = [vaidcord::content_starts_with("!ping")]
+        filters = [vaidcord::command("start")]
     );
 
     let message = vaidcord::Message {
@@ -25,7 +25,7 @@ fn main() -> Result<(), vaidcord::Error> {
             banner: None,
             public_flags: None,
         },
-        content: "!ping".to_string(),
+        content: "/start".to_string(),
         timestamp: None,
         edited_timestamp: None,
         tts: false,

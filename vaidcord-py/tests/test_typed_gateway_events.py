@@ -140,3 +140,13 @@ async def test_unknown_typed_dispatch_falls_back_to_raw_gateway_event() -> None:
     bot = Bot(token="token")
     event = await bot._parse_event(EventType.PRESENCE_UPDATE, {"guild_id": "1"})
     assert isinstance(event.object, RawGatewayEvent)
+
+
+@pytest.mark.asyncio
+async def test_parse_event_allows_null_channel_id() -> None:
+    bot = Bot(token="token")
+    event = await bot._parse_event(
+        EventType.VOICE_STATE_UPDATE,
+        {"guild_id": "1", "channel_id": None},
+    )
+    assert event.channel is None

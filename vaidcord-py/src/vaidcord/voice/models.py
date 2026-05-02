@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import IntFlag, StrEnum
 from typing import Any
 
 
@@ -11,10 +11,18 @@ class VoiceEncryptionMode(StrEnum):
     XSALSA20_POLY1305_LITE_RTPSIZE = "xsalsa20_poly1305_lite_rtpsize"
 
 
+class VoiceSpeakingFlag(IntFlag):
+    MICROPHONE = 1 << 0
+    SOUNDSHARE = 1 << 1
+    PRIORITY = 1 << 2
+
+
 @dataclass(frozen=True, slots=True)
 class VoiceGatewayConfig:
     version: int = 8
     max_dave_protocol_version: int = 0
+    dave_backend: Any | None = field(default=None, repr=False, compare=False)
+    dave_fail_fast: bool = True
     preferred_modes: tuple[VoiceEncryptionMode, ...] = (
         VoiceEncryptionMode.AEAD_AES256_GCM_RTPSIZE,
         VoiceEncryptionMode.AEAD_XCHACHA20_POLY1305_RTPSIZE,
@@ -67,4 +75,3 @@ class VoiceSessionDescription:
     secret_key: bytes
     dave_protocol_version: int | None = None
     raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
-

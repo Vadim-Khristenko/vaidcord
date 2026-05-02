@@ -5,6 +5,29 @@ from vaidcord.application import (
     ApplicationRoleConnectionMetadataType,
 )
 from vaidcord.bot import Bot, BotConfig, BotState, GatewayIntent
+from vaidcord.commands import ApplicationCommandType, CommandContext, RegisteredCommand
+from vaidcord.components import (
+    IS_COMPONENTS_V2,
+    ButtonStyle,
+    ComponentType,
+    action_row,
+    button,
+    checkbox,
+    components_v2_message,
+    container,
+    file_component,
+    label,
+    media_gallery,
+    media_item,
+    modal_payload,
+    section,
+    select_menu,
+    select_option,
+    separator,
+    text_display,
+    text_input,
+    thumbnail,
+)
 from vaidcord.dispatcher import Dispatcher
 from vaidcord.errors import (
     AuthenticationError,
@@ -105,16 +128,37 @@ from vaidcord.types import (
 )
 from vaidcord.typing import EventHandler, EventHandlerResult, Middleware, NextHandler
 from vaidcord.voice import (
+    AudioBackendError,
+    AudioBackendStatus,
+    DaveBackendError,
+    DaveCommit,
+    DaveCryptoBackend,
+    DaveKeyPackage,
+    DaveOpcode,
+    DaveOutboundPayload,
+    DavePayloadError,
+    DaveProtocolController,
+    DaveProtocolState,
+    DaveTransition,
+    DaveUnsupportedError,
+    MissingVoiceDependency,
+    UnsupportedDaveBackend,
     VoiceConnection,
+    VoiceDatagram,
     VoiceEncryptionMode,
     VoiceGatewayConfig,
     VoiceManager,
     VoiceReady,
     VoiceServerUpdate,
     VoiceSessionDescription,
+    VoiceSpeakingFlag,
     VoiceState,
-    VoiceDatagram,
     VoiceUDPClient,
+    check_voice_dependencies,
+    ensure_voice_playback_dependencies,
+    iter_file_chunks,
+    iter_opus_frames,
+    iter_pcm_s16le_frames,
 )
 
 __version__: str

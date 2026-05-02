@@ -102,3 +102,36 @@ func (c *Client) SendMessage(ctx context.Context, channelID string, message Mess
 	err := c.DoJSON(ctx, http.MethodPost, "/channels/"+channelID+"/messages", message, &payload)
 	return payload, err
 }
+
+func (c *Client) ListGlobalCommands(ctx context.Context, applicationID string) ([]map[string]any, error) {
+	var payload []map[string]any
+	err := c.DoJSON(ctx, http.MethodGet, "/applications/"+applicationID+"/commands", nil, &payload)
+	return payload, err
+}
+
+func (c *Client) BulkOverwriteGlobalCommands(
+	ctx context.Context,
+	applicationID string,
+	commands []map[string]any,
+) ([]map[string]any, error) {
+	var payload []map[string]any
+	err := c.DoJSON(ctx, http.MethodPut, "/applications/"+applicationID+"/commands", commands, &payload)
+	return payload, err
+}
+
+func (c *Client) ListGuildCommands(ctx context.Context, applicationID string, guildID string) ([]map[string]any, error) {
+	var payload []map[string]any
+	err := c.DoJSON(ctx, http.MethodGet, "/applications/"+applicationID+"/guilds/"+guildID+"/commands", nil, &payload)
+	return payload, err
+}
+
+func (c *Client) BulkOverwriteGuildCommands(
+	ctx context.Context,
+	applicationID string,
+	guildID string,
+	commands []map[string]any,
+) ([]map[string]any, error) {
+	var payload []map[string]any
+	err := c.DoJSON(ctx, http.MethodPut, "/applications/"+applicationID+"/guilds/"+guildID+"/commands", commands, &payload)
+	return payload, err
+}

@@ -2,7 +2,7 @@
 
 VaidCord is a Python Discord SDK built around a small set of composable pieces: Bot, Dispatcher, Router, filters, middleware, and FSM.
 
-Current package status: **Beta** (`0.1.0b1`).
+Current package status: **Beta** (`0.1.0b3`).
 
 ## Why it exists
 
@@ -20,6 +20,7 @@ uv add vaidcord
 uv add "vaidcord[redis]"
 uv add "vaidcord[mongo]"
 uv add "vaidcord[postgres]"
+uv add "vaidcord[voice]"
 ```
 
 ## Recommended entry points
@@ -28,6 +29,7 @@ uv add "vaidcord[postgres]"
 2. Read [docs/PYTHON_DRIVER.md](docs/PYTHON_DRIVER.md) for the architecture and runtime model.
 3. Browse [examples/README.md](examples/README.md) for feature-focused examples.
 4. Use [docs/OAUTH2.md](docs/OAUTH2.md) and [docs/APPLICATION_API.md](docs/APPLICATION_API.md) when you need auth or application resources.
+5. Use [docs/VOICE_AND_SLASH_COMMANDS.md](docs/VOICE_AND_SLASH_COMMANDS.md) for voice + slash command workflows.
 
 ## Mental model
 
@@ -113,12 +115,12 @@ await dp.start_webhook_many([bot_a, bot_b], drop_pending_updates=True)
 | Messages | supported | Send, reply, edit, delete, reactions, pins, polls, and typed message events. |
 | Channels and threads | partial | Core channel, invite, permission overwrite, and thread helpers exist; keep checking Discord parity as new fields/routes land. |
 | Guilds and users | partial | Common fetch/update/list helpers exist; advanced administration is still expanding. |
-| Interactions | partial | Low-level interaction callback/follow-up helpers exist; high-level decorator command sync is planned. |
+| Interactions | partial | Decorator-based slash/user/message command registration and command sync are available; continue validating edge-cases for large command trees. |
 | OAuth2 | supported | URL, token, refresh, revoke, and userinfo helpers. |
 | FSM | supported | Scoped storage with memory, SQLite, Redis, Mongo, and Postgres backends. |
 | Mock server/testing | supported | Local mock server, mock bot, builders, and deterministic test helpers. |
 | Multi-bot startup | experimental | `start_polling_many` and `start_webhook_many` are covered by regression tests, but large deployments should load-test their router/middleware mix. |
-| Voice | planned | Voice event shortcuts exist; voice gateway, UDP, speaking state, and audio transport are not implemented yet. |
+| Voice | partial | Voice gateway + UDP + speaking state + transport-level frame/file streaming helpers are available; full media pipeline/e2ee/codec tooling is still expanding. |
 
 ## Performance and memory notes
 
@@ -136,6 +138,7 @@ await dp.start_webhook_many([bot_a, bot_b], drop_pending_updates=True)
 - [docs/MIDDLEWARE.md](docs/MIDDLEWARE.md) - outer/inner middleware model and FSM as system middleware
 - [docs/APPLICATION_API.md](docs/APPLICATION_API.md) - Discord application resources and role connection metadata
 - [docs/OAUTH2.md](docs/OAUTH2.md) - OAuth2 helpers and token workflows
+- [docs/VOICE_AND_SLASH_COMMANDS.md](docs/VOICE_AND_SLASH_COMMANDS.md) - voice lifecycle, file streaming, slash commands, and dev guild sync
 - [docs/PUBLISHING.md](docs/PUBLISHING.md) - beta versioning and PyPI trusted publishing workflow
 - [examples/README.md](examples/README.md) - quick index of runnable examples
 

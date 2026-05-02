@@ -241,6 +241,64 @@ func ContentStartsWith(prefix string) MessageFilter {
 	}
 }
 
+func Command(name string) MessageFilter {
+	return CommandWithPrefixes(name)
+}
+
+func CommandWithPrefixes(name string, prefixes ...string) MessageFilter {
+	needle := strings.ToLower(strings.TrimSpace(name))
+	resolvedPrefixes := resolveCommandPrefixes(prefixes)
+	return func(message Message) bool {
+		text := strings.TrimSpace(message.Content)
+		if text == "" {
+			return false
+		}
+		token := text
+		if index := strings.IndexByte(text, ' '); index >= 0 {
+			token = text[:index]
+		}
+		for _, prefix := range resolvedPrefixes {
+			if strings.HasPrefix(token, prefix) {
+				namePart := strings.TrimPrefix(token, prefix)
+				if at := strings.IndexByte(namePart, '@'); at >= 0 {
+					namePart = namePart[:at]
+				}
+				return strings.EqualFold(namePart, needle)
+			}
+		}
+		return false
+	}
+}
+
+func CommandStart(prefixes ...string) MessageFilter {
+	return CommandWithPrefixes("start", prefixes...)
+}
+
+func CommandHelp(prefixes ...string) MessageFilter {
+	return CommandWithPrefixes("help", prefixes...)
+}
+
+func CommandSettings(prefixes ...string) MessageFilter {
+	return CommandWithPrefixes("settings", prefixes...)
+}
+
+func resolveCommandPrefixes(prefixes []string) []string {
+	if len(prefixes) == 0 {
+		return []string{"/", "!", "."}
+	}
+	out := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		if prefix == "" {
+			continue
+		}
+		out = append(out, prefix)
+	}
+	if len(out) == 0 {
+		return []string{"/", "!", "."}
+	}
+	return out
+}
+
 func AuthorID(userID string) MessageFilter {
 	return func(message Message) bool {
 		return message.Author.ID == userID

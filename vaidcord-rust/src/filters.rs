@@ -13,19 +13,66 @@ pub type MessageFilter =
     Box<dyn Fn(&Message, &ExtractBag) -> Result<FilterOutcome, Error> + Send + Sync>;
 
 pub fn command(name: impl Into<String>) -> MessageFilter {
-    let name = name.into();
+    command_with_prefixes(name, &["/", "!", "."])
+}
+
+pub fn command_with_prefixes(name: impl Into<String>, prefixes: &[&str]) -> MessageFilter {
+    let command_name = name.into().trim().to_ascii_lowercase();
+    let prefixes = normalize_prefixes(prefixes);
     Box::new(move |message: &Message, _bag: &ExtractBag| {
-        let prefix = format!("!{name}");
-        if message.content == prefix || message.content.starts_with(&(prefix.clone() + " ")) {
-            let raw = message.content[prefix.len()..].trim_start().to_string();
-            let mut bag = ExtractBag::new();
-            bag.insert(Command { name: name.clone() });
-            bag.insert(Args { raw });
-            Ok(FilterOutcome::Pass(bag))
-        } else {
-            Ok(FilterOutcome::Reject)
+        let text = message.content.trim();
+        if text.is_empty() {
+            return Ok(FilterOutcome::Reject);
         }
+        let token = text.split_once(' ').map_or(text, |(head, _)| head);
+        let Some(matched_prefix) = prefixes
+            .iter()
+            .find(|prefix| token.starts_with(prefix.as_str()))
+        else {
+            return Ok(FilterOutcome::Reject);
+        };
+        let mut name_part = &token[matched_prefix.len()..];
+        if let Some((before, _)) = name_part.split_once('@') {
+            name_part = before;
+        }
+        if !name_part.eq_ignore_ascii_case(&command_name) {
+            return Ok(FilterOutcome::Reject);
+        }
+
+        let raw = text
+            .split_once(char::is_whitespace)
+            .map_or_else(String::new, |(_, tail)| tail.trim_start().to_string());
+        let mut bag = ExtractBag::new();
+        bag.insert(Command {
+            name: command_name.clone(),
+        });
+        bag.insert(Args { raw });
+        Ok(FilterOutcome::Pass(bag))
     })
+}
+
+pub fn command_start() -> MessageFilter {
+    command("start")
+}
+
+pub fn command_start_with_prefixes(prefixes: &[&str]) -> MessageFilter {
+    command_with_prefixes("start", prefixes)
+}
+
+pub fn command_help() -> MessageFilter {
+    command("help")
+}
+
+pub fn command_help_with_prefixes(prefixes: &[&str]) -> MessageFilter {
+    command_with_prefixes("help", prefixes)
+}
+
+pub fn command_settings() -> MessageFilter {
+    command("settings")
+}
+
+pub fn command_settings_with_prefixes(prefixes: &[&str]) -> MessageFilter {
+    command_with_prefixes("settings", prefixes)
 }
 
 pub fn content_starts_with(prefix: impl Into<String>) -> MessageFilter {
@@ -93,4 +140,96 @@ macro_rules! command {
     ($name:literal) => {
         $crate::command($name)
     };
+    ($name:literal, [$($prefix:literal),+ $(,)?]) => {
+        $crate::command_with_prefixes($name, &[$($prefix),+])
+    };
+}
+
+fn normalize_prefixes(prefixes: &[&str]) -> Vec<String> {
+    if prefixes.is_empty() {
+        return vec!["/".to_string(), "!".to_string(), ".".to_string()];
+    }
+    let filtered: Vec<String> = prefixes
+        .iter()
+        .filter_map(|prefix| {
+            let trimmed = prefix.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .collect();
+    if filtered.is_empty() {
+        vec!["/".to_string(), "!".to_string(), ".".to_string()]
+    } else {
+        filtered
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::User;
+
+    fn message(content: &str) -> Message {
+        Message {
+            id: "1".to_string(),
+            channel_id: "2".to_string(),
+            guild_id: None,
+            author: User {
+                id: "42".to_string(),
+                username: "tester".to_string(),
+                discriminator: None,
+                global_name: None,
+                bot: false,
+                system: false,
+                avatar: None,
+                banner: None,
+                public_flags: None,
+            },
+            content: content.to_string(),
+            timestamp: None,
+            edited_timestamp: None,
+            tts: false,
+            mention_everyone: false,
+            mentions: Vec::new(),
+            embeds: Vec::new(),
+            attachments: Vec::new(),
+            components: Vec::new(),
+            flags: None,
+        }
+    }
+
+    #[test]
+    fn command_filter_matches_python_style_prefixes() {
+        let filter = command("start");
+        let bag = ExtractBag::new();
+
+        assert!(matches!(
+            filter(&message("/start"), &bag).unwrap(),
+            FilterOutcome::Pass(_)
+        ));
+        assert!(matches!(
+            filter(&message("!start payload"), &bag).unwrap(),
+            FilterOutcome::Pass(_)
+        ));
+        assert!(matches!(
+            filter(&message(".StArT@mybot now"), &bag).unwrap(),
+            FilterOutcome::Pass(_)
+        ));
+        assert!(matches!(
+            filter(&message("/other"), &bag).unwrap(),
+            FilterOutcome::Reject
+        ));
+        let custom = command_with_prefixes("start", &["#"]);
+        assert!(matches!(
+            custom(&message("#start"), &bag).unwrap(),
+            FilterOutcome::Pass(_)
+        ));
+        assert!(matches!(
+            custom(&message("/start"), &bag).unwrap(),
+            FilterOutcome::Reject
+        ));
+    }
 }

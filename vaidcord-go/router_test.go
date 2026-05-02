@@ -163,3 +163,29 @@ func TestDispatcherErrorHandlerReceivesHandlerErrors(t *testing.T) {
 		t.Fatalf("unexpected meta: %#v", gotMeta)
 	}
 }
+
+func TestCommandFiltersFollowPythonSemantics(t *testing.T) {
+	cases := []struct {
+		filter MessageFilter
+		input  string
+		pass   bool
+	}{
+		{Command("start"), "/start", true},
+		{CommandStart(), "/start payload", true},
+		{CommandHelp(), "!help", true},
+		{CommandSettings(), ".settings", true},
+		{CommandSettings(), "/other", false},
+		{CommandStart(), "/StArT@mybot now", true},
+		{CommandWithPrefixes("start", "#"), "#start", true},
+		{CommandWithPrefixes("start", "#"), "/start", false},
+		{CommandStart("#"), "#start", true},
+		{CommandHelp("$"), "$help docs", true},
+		{CommandSettings("?"), "/settings", false},
+	}
+
+	for _, testCase := range cases {
+		if got := testCase.filter(Message{Content: testCase.input}); got != testCase.pass {
+			t.Fatalf("unexpected command filter result for %q: got=%v want=%v", testCase.input, got, testCase.pass)
+		}
+	}
+}

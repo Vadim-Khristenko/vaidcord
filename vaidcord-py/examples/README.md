@@ -17,6 +17,8 @@ The bot examples define routers at module level and let `build_dispatcher()` onl
 - [oauth2_examples.py](oauth2_examples.py) - the minimal OAuth2 authorization URL helper.
 - [oauth2_workflow.py](oauth2_workflow.py) - a richer OAuth2 install and token helper example.
 - [send_dm_to_user.py](send_dm_to_user.py) - open a user DM channel and send a direct message by user ID.
+- [slash_commands.py](slash_commands.py) - decorator-based slash command registration with typed option access.
+- [voice_showcase.py](voice_showcase.py) - combined voice showcase (play file, raw stream, speaking flags, silence tail).
 
 ## Run them
 
@@ -32,6 +34,8 @@ uv run python examples/mock_server_ui.py
 uv run python examples/oauth2_examples.py
 uv run python examples/oauth2_workflow.py
 uv run python examples/send_dm_to_user.py 123456789012345678 "Hello from VaidCord"
+uv run python examples/slash_commands.py
+uv run python examples/voice_showcase.py
 ```
 
 The bot examples expect a `DISCORD_BOT_TOKEN` environment variable.

@@ -13,12 +13,19 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, IntFlag
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import aiohttp
 
 from vaidcord.api_client import APIClient
 from vaidcord.application import Application, ApplicationRoleConnectionMetadata
+from vaidcord.commands import (
+    ApplicationCommandType,
+    CommandContext,
+    CommandHandler,
+    RegisteredCommand,
+)
+from vaidcord.components import IS_COMPONENTS_V2
 from vaidcord.errors import DiscordAPIError, ForbiddenError, RateLimitError
 from vaidcord.gateway_runtime import GatewayRuntime
 from vaidcord.http import DiscordError
@@ -110,6 +117,10 @@ class BotConfig:
     base_url: str = "https://discord.com/api"
     gateway_url: str = "wss://gateway.discord.gg"
     ignore_self_messages: bool = True
+    auto_sync_commands: bool = True
+    command_dev_guild_id: int | None = None
+    command_sync_mode: Literal["replace", "merge"] = "replace"
+    command_sync_guild_ids: tuple[int, ...] = ()
 
 
 class Bot(Router):
@@ -173,6 +184,8 @@ class Bot(Router):
         # Event handlers for internal events
         self._ready_event = asyncio.Event()
         self._drop_pending_updates = False
+        self._registered_commands: list[RegisteredCommand] = []
+        self._command_sync_retry_task: asyncio.Task[None] | None = None
 
     def _log_extra(self) -> dict[str, str]:
         """Return logging context for this bot when its identity is known."""
@@ -297,6 +310,8 @@ class Bot(Router):
                 and event.message.author.id == self._user.id
             ):
                 return
+        elif event_type == EventType.INTERACTION_CREATE:
+            await self._handle_interaction_create(d)
 
         # Propagate event to handlers
         await self.propagate_event(event)
@@ -431,7 +446,7 @@ class Bot(Router):
         if "guild_id" in data:
             guild_id = int(data["guild_id"])
             event.guild = event.guild or self._guilds.get(guild_id)
-        if "channel_id" in data:
+        if "channel_id" in data and data.get("channel_id") is not None:
             channel_id = int(data["channel_id"])
             event.channel = event.channel or self._channels.get(channel_id)
 
@@ -472,6 +487,250 @@ class Bot(Router):
             bot_user.id,
             extra=self._log_extra(),
         )
+        if self.config.auto_sync_commands and self._registered_commands:
+            await self.sync_application_commands()
+
+    async def _handle_interaction_create(self, data: dict[str, Any]) -> None:
+        interaction_type = int(data.get("type", 0))
+        if interaction_type != 2:
+            return
+        command_data = data.get("data")
+        if not isinstance(command_data, dict):
+            return
+        name = command_data.get("name")
+        command_type = int(command_data.get("type", 1))
+        if not isinstance(name, str) or not name:
+            return
+        guild_id = int(data["guild_id"]) if data.get("guild_id") else None
+        for command in self._registered_commands:
+            if command.name != name or int(command.kind) != command_type:
+                continue
+            if command.guild_id is not None and command.guild_id != guild_id:
+                continue
+            await command.handler(CommandContext(raw=dict(data)))
+
+    def slash_command(
+        self,
+        name: str | None = None,
+        *,
+        description: str = "No description",
+        guild_id: int | None = None,
+        options: list[dict[str, Any]] | None = None,
+        dm_permission: bool | None = None,
+        default_member_permissions: str | None = None,
+        name_localizations: dict[str, str] | None = None,
+        description_localizations: dict[str, str] | None = None,
+        integration_types: list[int] | None = None,
+        contexts: list[int] | None = None,
+        nsfw: bool | None = None,
+    ):
+        def decorator(handler: CommandHandler) -> CommandHandler:
+            self._registered_commands.append(
+                RegisteredCommand(
+                    name=name or handler.__name__,
+                    description=description,
+                    kind=ApplicationCommandType.CHAT_INPUT,
+                    handler=handler,
+                    guild_id=guild_id,
+                    options=list(options or []),
+                    dm_permission=dm_permission,
+                    default_member_permissions=default_member_permissions,
+                    name_localizations=name_localizations,
+                    description_localizations=description_localizations,
+                    integration_types=integration_types,
+                    contexts=contexts,
+                    nsfw=nsfw,
+                )
+            )
+            return handler
+
+        return decorator
+
+    def user_command(
+        self,
+        name: str | None = None,
+        *,
+        guild_id: int | None = None,
+        dm_permission: bool | None = None,
+        default_member_permissions: str | None = None,
+        name_localizations: dict[str, str] | None = None,
+        integration_types: list[int] | None = None,
+        contexts: list[int] | None = None,
+        nsfw: bool | None = None,
+    ):
+        def decorator(handler: CommandHandler) -> CommandHandler:
+            self._registered_commands.append(
+                RegisteredCommand(
+                    name=name or handler.__name__,
+                    description="",
+                    kind=ApplicationCommandType.USER,
+                    handler=handler,
+                    guild_id=guild_id,
+                    dm_permission=dm_permission,
+                    default_member_permissions=default_member_permissions,
+                    name_localizations=name_localizations,
+                    integration_types=integration_types,
+                    contexts=contexts,
+                    nsfw=nsfw,
+                )
+            )
+            return handler
+
+        return decorator
+
+    def message_command(
+        self,
+        name: str | None = None,
+        *,
+        guild_id: int | None = None,
+        dm_permission: bool | None = None,
+        default_member_permissions: str | None = None,
+        name_localizations: dict[str, str] | None = None,
+        integration_types: list[int] | None = None,
+        contexts: list[int] | None = None,
+        nsfw: bool | None = None,
+    ):
+        def decorator(handler: CommandHandler) -> CommandHandler:
+            self._registered_commands.append(
+                RegisteredCommand(
+                    name=name or handler.__name__,
+                    description="",
+                    kind=ApplicationCommandType.MESSAGE,
+                    handler=handler,
+                    guild_id=guild_id,
+                    dm_permission=dm_permission,
+                    default_member_permissions=default_member_permissions,
+                    name_localizations=name_localizations,
+                    integration_types=integration_types,
+                    contexts=contexts,
+                    nsfw=nsfw,
+                )
+            )
+            return handler
+
+        return decorator
+
+    async def sync_application_commands(self) -> None:
+        if self.id is None or not self._registered_commands:
+            return
+        try:
+            await self._sync_application_commands_once()
+        except RateLimitError as error:
+            retry_after = max(1.0, float(error.retry_after or 5.0))
+            logger.warning(
+                "Application command sync is rate-limited. Commands will be retried in %.1f seconds.",
+                retry_after,
+                extra=self._log_extra(),
+            )
+            self._schedule_command_sync_retry(retry_after)
+
+    async def _sync_application_commands_once(self) -> None:
+        if self.id is None:
+            return
+        desired_global: list[dict[str, Any]] = []
+        desired_guild: dict[int, list[dict[str, Any]]] = {}
+        for command in self._registered_commands:
+            payload = command.to_payload()
+            target_guild_id = command.guild_id or self.config.command_dev_guild_id
+            if target_guild_id is None:
+                desired_global.append(payload)
+            else:
+                desired_guild.setdefault(target_guild_id, []).append(payload)
+        for guild_id in self.config.command_sync_guild_ids:
+            desired_guild.setdefault(guild_id, [])
+
+        current_global = await self.api_client.list_global_commands(self.id)
+        global_payload = self._resolve_command_sync_payload(current_global, desired_global)
+        if self._commands_changed(current_global, global_payload):
+            await self.api_client.bulk_overwrite_global_commands(self.id, global_payload)
+
+        for guild_id, desired in desired_guild.items():
+            current_guild = await self.api_client.list_guild_commands(self.id, guild_id)
+            guild_payload = self._resolve_command_sync_payload(current_guild, desired)
+            if self._commands_changed(current_guild, guild_payload):
+                await self.api_client.bulk_overwrite_guild_commands(self.id, guild_id, guild_payload)
+
+    def _schedule_command_sync_retry(self, retry_after: float) -> None:
+        if self._command_sync_retry_task is not None and not self._command_sync_retry_task.done():
+            return
+
+        async def _runner() -> None:
+            delay = retry_after
+            try:
+                while True:
+                    await asyncio.sleep(delay)
+                    try:
+                        await self._sync_application_commands_once()
+                        logger.info(
+                            "Application command sync retry completed.",
+                            extra=self._log_extra(),
+                        )
+                        return
+                    except RateLimitError as error:
+                        delay = max(1.0, float(error.retry_after or delay))
+                        logger.warning(
+                            "Application command sync is still rate-limited. Next retry in %.1f seconds.",
+                            delay,
+                            extra=self._log_extra(),
+                        )
+            except Exception:
+                logger.exception("Application command sync retry failed.", extra=self._log_extra())
+            finally:
+                self._command_sync_retry_task = None
+
+        self._command_sync_retry_task = asyncio.create_task(_runner())
+
+    def _resolve_command_sync_payload(
+        self,
+        current: list[dict[str, Any]],
+        desired: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if self.config.command_sync_mode == "replace":
+            return desired
+        merged: dict[tuple[int, str], dict[str, Any]] = {}
+        for item in current:
+            normalized = self._normalize_command_payload(item)
+            key = (int(normalized.get("type", 1)), str(normalized.get("name", "")))
+            if key[1]:
+                merged[key] = normalized
+        for item in desired:
+            normalized = self._normalize_command_payload(item)
+            key = (int(normalized.get("type", 1)), str(normalized.get("name", "")))
+            if key[1]:
+                merged[key] = normalized
+        return list(merged.values())
+
+    @staticmethod
+    def _normalize_command_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        filtered = {
+            key: value
+            for key, value in payload.items()
+            if key
+            not in {
+                "id",
+                "application_id",
+                "guild_id",
+                "version",
+                "default_permission",
+                "name_localized",
+                "description_localized",
+            }
+        }
+        if "options" in filtered and isinstance(filtered["options"], list):
+            filtered["options"] = [dict(option) for option in filtered["options"]]
+        return filtered
+
+    @staticmethod
+    def _commands_changed(current: list[dict[str, Any]], desired: list[dict[str, Any]]) -> bool:
+        left = sorted(
+            (Bot._normalize_command_payload(item) for item in current),
+            key=lambda item: (item.get("type"), item.get("name")),
+        )
+        right = sorted(
+            (Bot._normalize_command_payload(item) for item in desired),
+            key=lambda item: (item.get("type"), item.get("name")),
+        )
+        return left != right
 
     async def _handle_message_create(self, event: Event, data: dict[str, Any]) -> None:
         """Handle MESSAGE_CREATE event."""
@@ -754,6 +1013,8 @@ class Bot(Router):
         self._ready_event.clear()
 
         await self.runtime.stop()
+        if self._command_sync_retry_task is not None and not self._command_sync_retry_task.done():
+            self._command_sync_retry_task.cancel()
         await self.api_client.close()
         await self._close_session()
         self._state = BotState.STOPPED
@@ -826,6 +1087,22 @@ class Bot(Router):
             tts=tts,
             allowed_mentions=allowed_mentions,
             message_reference=message_reference,
+        )
+
+    async def send_components_v2(
+        self,
+        channel_id: int,
+        components: list[dict[str, Any]],
+        *,
+        allowed_mentions: dict[str, Any] | None = None,
+        flags: int = 0,
+    ) -> dict[str, Any]:
+        """Send a Components V2-only message."""
+        return await self.send_message(
+            channel_id=channel_id,
+            components=components,
+            allowed_mentions=allowed_mentions,
+            flags=flags | IS_COMPONENTS_V2,
         )
 
     async def send_dm(self, user_id: int, content: str, **kwargs: Any) -> Message:

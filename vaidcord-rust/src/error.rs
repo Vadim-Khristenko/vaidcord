@@ -9,8 +9,10 @@ pub struct DiscordApiErrorBody {
 #[derive(Debug)]
 pub enum Error {
     Http(reqwest::Error),
+    WebSocket(tokio_tungstenite::tungstenite::Error),
     Decode(serde_json::Error),
     MissingExtractor(&'static str),
+    Other(String),
     Api {
         status: reqwest::StatusCode,
         code: Option<i64>,
@@ -23,8 +25,10 @@ impl std::fmt::Display for Error {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Http(error) => write!(formatter, "{error}"),
+            Self::WebSocket(error) => write!(formatter, "{error}"),
             Self::Decode(error) => write!(formatter, "{error}"),
             Self::MissingExtractor(name) => write!(formatter, "missing handler extractor: {name}"),
+            Self::Other(message) => write!(formatter, "{message}"),
             Self::Api {
                 status,
                 code,
@@ -50,5 +54,11 @@ impl From<reqwest::Error> for Error {
 impl From<serde_json::Error> for Error {
     fn from(error: serde_json::Error) -> Self {
         Self::Decode(error)
+    }
+}
+
+impl From<tokio_tungstenite::tungstenite::Error> for Error {
+    fn from(error: tokio_tungstenite::tungstenite::Error) -> Self {
+        Self::WebSocket(error)
     }
 }

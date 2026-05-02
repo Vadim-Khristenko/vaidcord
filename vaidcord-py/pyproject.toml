@@ -1,6 +1,6 @@
 [project]
 name = "vaidcord"
-version = "0.1.0b2"
+version = "0.1.0b3"
 description = "High-performance Discord framework inspired by Aiogram 3.x architecture"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -55,6 +55,19 @@ fsm-backends = [
     "redis>=7.0.0",
     "pymongo>=4.9.0",
     "asyncpg>=0.30.0",
+]
+voice = [
+    "PyNaCl>=1.5.0",
+    "cryptography>=42.0.0",
+    "opuslib>=3.0.1",
+]
+all = [
+    "pymongo>=4.9.0",
+    "redis>=7.0.0",
+    "asyncpg>=0.30.0",
+    "PyNaCl>=1.5.0",
+    "cryptography>=42.0.0",
+    "opuslib>=3.0.1",
 ]
 
 [build-system]
