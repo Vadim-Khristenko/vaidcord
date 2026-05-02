@@ -14,7 +14,7 @@ Status: **scaffold only**. The first committed surface is intentionally small:
 - typed `User`, `Channel`, and `Message` response models
 - first REST helpers: `get_current_user`, `fetch_channel`, `send_message`
 - formatter helpers for Discord markdown and mentions
-- first router primitives: `Router::on_message`, `on_message!`, message filters
+- first router primitives: `Router::on_message`, `register_on_message!`, `#[vaidcord::on_message(...)]`, message filters
 
 ```rust
 let client = vaidcord::Client::new(vaidcord::Config::new("BOT_TOKEN"));
@@ -30,17 +30,17 @@ let client = vaidcord::Client::new(
 
 ```rust
 let mut router = vaidcord::Router::new();
-vaidcord::on_message!(
-    router,
-    |message: &vaidcord::Message| {
-        println!("{}", vaidcord::bold(&message.content));
-        Ok(())
-    },
-    filters = [vaidcord::content_starts_with("!ping")]
-);
+
+#[vaidcord::on_message(vaidcord::content_starts_with("!ping"))]
+fn ping(message: &vaidcord::Message) -> vaidcord::HandlerResult {
+    println!("{}", vaidcord::bold(&message.content));
+    Ok(())
+}
+
+router.add_message_handler(ping_message_handler());
 ```
 
-Runnable examples live in `examples/basic.rs` and `examples/router.rs`.
+Runnable examples live in `examples/basic.rs`, `examples/router.rs`, and `examples/decorator_router.rs`.
 
 Next steps:
 

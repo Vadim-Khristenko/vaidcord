@@ -104,6 +104,17 @@ from vaidcord.types import (
     WebhookEventType,
 )
 from vaidcord.typing import EventHandler, EventHandlerResult, Middleware, NextHandler
+from vaidcord.voice import (
+    VoiceConnection,
+    VoiceEncryptionMode,
+    VoiceGatewayConfig,
+    VoiceManager,
+    VoiceReady,
+    VoiceServerUpdate,
+    VoiceSessionDescription,
+    VoiceState,
+    VoiceUDPClient,
+)
 
 __version__: str
 __author__: str

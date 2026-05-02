@@ -1,52 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct User {
-    pub id: String,
-    pub username: String,
-    #[serde(default)]
-    pub discriminator: Option<String>,
-    #[serde(default)]
-    pub global_name: Option<String>,
-    #[serde(default)]
-    pub bot: bool,
-    #[serde(default)]
-    pub system: bool,
-    #[serde(default)]
-    pub avatar: Option<String>,
-    #[serde(default)]
-    pub banner: Option<String>,
-    #[serde(default)]
-    pub public_flags: Option<u64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct Channel {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub kind: u8,
-    #[serde(default)]
-    pub guild_id: Option<String>,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub topic: Option<String>,
-    #[serde(default)]
-    pub position: Option<i64>,
-    #[serde(default)]
-    pub nsfw: Option<bool>,
-    #[serde(default)]
-    pub parent_id: Option<String>,
-    #[serde(default)]
-    pub last_message_id: Option<String>,
-    #[serde(default)]
-    pub rate_limit_per_user: Option<u64>,
-    #[serde(default)]
-    pub permission_overwrites: Vec<Value>,
-    #[serde(default)]
-    pub default_auto_archive_duration: Option<u64>,
-}
+use super::User;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Message {
@@ -74,6 +29,28 @@ pub struct Message {
     pub components: Vec<Value>,
     #[serde(default)]
     pub flags: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct EditedMessage {
+    #[serde(flatten)]
+    pub message: Message,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct DeletedMessage {
+    pub id: String,
+    pub channel_id: String,
+    #[serde(default)]
+    pub guild_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct BulkDeletedMessages {
+    pub ids: Vec<String>,
+    pub channel_id: String,
+    #[serde(default)]
+    pub guild_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

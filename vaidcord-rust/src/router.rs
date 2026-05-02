@@ -5,6 +5,29 @@ pub type HandlerResult = Result<(), Error>;
 pub type MessageHandler = Box<dyn Fn(&Message) -> HandlerResult + Send + Sync>;
 pub type MessageFilter = Box<dyn Fn(&Message) -> bool + Send + Sync>;
 
+pub struct MessageHandlerDef {
+    name: &'static str,
+    filters: Vec<MessageFilter>,
+    handler: MessageHandler,
+}
+
+impl MessageHandlerDef {
+    pub fn new<F>(name: &'static str, handler: F, filters: Vec<MessageFilter>) -> Self
+    where
+        F: Fn(&Message) -> HandlerResult + Send + Sync + 'static,
+    {
+        Self {
+            name,
+            filters,
+            handler: Box::new(handler),
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+}
+
 pub struct Router {
     message_routes: Vec<MessageRoute>,
 }
@@ -38,6 +61,13 @@ impl Router {
         });
     }
 
+    pub fn add_message_handler(&mut self, definition: MessageHandlerDef) {
+        self.message_routes.push(MessageRoute {
+            filters: definition.filters,
+            handler: definition.handler,
+        });
+    }
+
     pub fn dispatch_message(&self, message: &Message) -> HandlerResult {
         for route in &self.message_routes {
             if !route.filters.iter().all(|filter| filter(message)) {
@@ -66,7 +96,7 @@ pub fn author_id(user_id: impl Into<String>) -> MessageFilter {
 }
 
 #[macro_export]
-macro_rules! on_message {
+macro_rules! register_on_message {
     ($router:expr, $handler:expr) => {
         $router.on_message($handler)
     };
@@ -119,7 +149,7 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let handler_calls = Arc::clone(&calls);
 
-        on_message!(
+        register_on_message!(
             router,
             move |message: &Message| {
                 handler_calls.fetch_add(1, Ordering::SeqCst);
@@ -132,5 +162,22 @@ mod tests {
         router.dispatch_message(&message("plain")).unwrap();
         router.dispatch_message(&message("!ping")).unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    fn ping(message: &Message) -> HandlerResult {
+        assert_eq!(message.content, "!ping");
+        Ok(())
+    }
+
+    #[test]
+    fn router_accepts_handler_definitions() {
+        let mut router = Router::new();
+        let definition = MessageHandlerDef::new("ping", ping, vec![content_starts_with("!")]);
+
+        assert_eq!(definition.name(), "ping");
+        router.add_message_handler(definition);
+
+        router.dispatch_message(&message("plain")).unwrap();
+        router.dispatch_message(&message("!ping")).unwrap();
     }
 }

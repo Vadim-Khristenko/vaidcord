@@ -34,10 +34,14 @@ client := vaidcord.NewClient(vaidcord.Config{
 
 ```go
 router := vaidcord.NewRouter()
-router.OnMessage(func(ctx context.Context, message vaidcord.Message) error {
+router.Message(vaidcord.ContentStartsWith("!ping")).Handle(func(ctx context.Context, message vaidcord.Message) error {
     fmt.Println(vaidcord.Bold(message.Content))
     return nil
-}, vaidcord.ContentStartsWith("!ping"))
+})
+
+if err := <-router.DispatchMessageAsync(context.Background(), message); err != nil {
+    panic(err)
+}
 ```
 
 Runnable examples live in `examples/basic` and `examples/router`.

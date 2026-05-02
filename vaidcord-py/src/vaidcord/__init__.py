@@ -128,6 +128,16 @@ __lazy_imports__ = {
     "BaseFSMStorage": ".fsm",
     "State": ".fsm",
     "StatesGroup": ".fsm",
+    # Voice
+    "VoiceConnection": ".voice",
+    "VoiceEncryptionMode": ".voice",
+    "VoiceGatewayConfig": ".voice",
+    "VoiceManager": ".voice",
+    "VoiceReady": ".voice",
+    "VoiceServerUpdate": ".voice",
+    "VoiceSessionDescription": ".voice",
+    "VoiceState": ".voice",
+    "VoiceUDPClient": ".voice",
 }
 
 
@@ -256,6 +266,16 @@ __all__ = [
     "BaseFSMStorage",
     "State",
     "StatesGroup",
+    # Voice
+    "VoiceConnection",
+    "VoiceEncryptionMode",
+    "VoiceGatewayConfig",
+    "VoiceManager",
+    "VoiceReady",
+    "VoiceServerUpdate",
+    "VoiceSessionDescription",
+    "VoiceState",
+    "VoiceUDPClient",
     # Version
     "__author__",
     "__version__",

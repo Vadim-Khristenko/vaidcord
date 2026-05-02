@@ -1,14 +1,14 @@
-fn main() -> Result<(), vaidcord::Error> {
-    let mut router = vaidcord::Router::new();
+use vaidcord::{HandlerResult, Message, Router, content_starts_with};
 
-    vaidcord::register_on_message!(
-        router,
-        |message: &vaidcord::Message| {
-            println!("{}", vaidcord::inline_code(&message.content));
-            Ok(())
-        },
-        filters = [vaidcord::content_starts_with("!ping")]
-    );
+#[vaidcord::on_message(content_starts_with("!age"))]
+fn age(message: &Message) -> HandlerResult {
+    println!("{} sent {}", message.author.username, message.content);
+    Ok(())
+}
+
+fn main() -> Result<(), vaidcord::Error> {
+    let mut router = Router::new();
+    router.add_message_handler(age_message_handler());
 
     let message = vaidcord::Message {
         id: "1".to_string(),
@@ -25,7 +25,7 @@ fn main() -> Result<(), vaidcord::Error> {
             banner: None,
             public_flags: None,
         },
-        content: "!ping".to_string(),
+        content: "!age".to_string(),
         timestamp: None,
         edited_timestamp: None,
         tts: false,

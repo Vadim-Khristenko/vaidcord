@@ -43,6 +43,7 @@ from vaidcord.types import (
     TypingStart,
     User,
 )
+from vaidcord.voice import VoiceConnection, VoiceGatewayConfig, VoiceManager
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,7 @@ class Bot(Router):
             session_closer=self._close_session,
         )
         self.runtime = GatewayRuntime(self)
+        self.voice = VoiceManager(self)
 
         # Cache for guilds, users, channels
         self._guilds: dict[int, Guild] = {}
@@ -258,6 +260,7 @@ class Bot(Router):
 
         if t is None or d is None:
             return
+        self.voice.handle_gateway_event(str(t).upper(), d)
 
         event_type_str = t.upper()
         try:
@@ -297,6 +300,28 @@ class Bot(Router):
 
         # Propagate event to handlers
         await self.propagate_event(event)
+
+    async def join_voice_channel(
+        self,
+        guild_id: int,
+        channel_id: int,
+        *,
+        self_mute: bool = False,
+        self_deaf: bool = False,
+        config: VoiceGatewayConfig | None = None,
+        wait_timeout: float = 30.0,
+    ) -> VoiceConnection:
+        if self._user is None:
+            raise RuntimeError("Bot user is not known yet; wait for READY before joining voice")
+        return await self.voice.connect(
+            guild_id,
+            channel_id,
+            user_id=self._user.id,
+            self_mute=self_mute,
+            self_deaf=self_deaf,
+            config=config,
+            wait_timeout=wait_timeout,
+        )
 
     async def _parse_event(self, event_type: EventType, data: dict[str, Any]) -> Event:
         """Parse raw event data into a typed Event object."""

@@ -14,8 +14,10 @@ pub use formatter::{
 };
 pub use models::{Channel, Message, MessagePayload, User};
 pub use router::{
-    HandlerResult, MessageFilter, MessageHandler, Router, author_id, content_starts_with,
+    HandlerResult, MessageFilter, MessageHandler, MessageHandlerDef, Router, author_id,
+    content_starts_with,
 };
+pub use vaidcord_macros::on_message;
 
 pub const LIBRARY_NAME: &str = "vaidcord-rust";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
