@@ -1,12 +1,21 @@
 pub mod client;
 pub mod config;
 pub mod error;
+pub mod formatter;
 pub mod models;
+pub mod router;
 
 pub use client::{Client, RequestParts};
 pub use config::Config;
 pub use error::{DiscordApiErrorBody, Error};
+pub use formatter::{
+    bold, code_block, escape_markdown, inline_code, italic, mention_channel, mention_role,
+    mention_user,
+};
 pub use models::{Channel, Message, MessagePayload, User};
+pub use router::{
+    HandlerResult, MessageFilter, MessageHandler, Router, author_id, content_starts_with,
+};
 
 pub const LIBRARY_NAME: &str = "vaidcord-rust";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

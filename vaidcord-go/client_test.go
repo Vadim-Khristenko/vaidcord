@@ -45,6 +45,18 @@ func TestClientGetCurrentUser(t *testing.T) {
 	}
 }
 
+func TestClientConfiguresProxyTransport(t *testing.T) {
+	client := NewClient(Config{Token: "token", ProxyURL: "http://127.0.0.1:8080"}, nil)
+
+	transport, ok := client.http.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected http.Transport, got %T", client.http.Transport)
+	}
+	if transport.Proxy == nil {
+		t.Fatal("expected proxy function to be configured")
+	}
+}
+
 func TestClientSendMessageEncodesJSONAndErrors(t *testing.T) {
 	var captured map[string]any
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {

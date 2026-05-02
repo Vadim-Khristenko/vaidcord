@@ -151,6 +151,36 @@ class HTTPResponseData:
     body: bytes
 
 
+class RateLimitManager:
+    """Owns Discord route/global rate-limit state and synchronization."""
+
+    def __init__(self) -> None:
+        self.limits: dict[str, RateLimitInfo] = {}
+        self.global_reset: datetime | None = None
+        self._global_lock = asyncio.Lock()
+        self._route_locks: dict[str, asyncio.Lock] = {}
+
+    def get_route_lock(self, endpoint: str) -> asyncio.Lock:
+        lock = self._route_locks.get(endpoint)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._route_locks[endpoint] = lock
+        return lock
+
+    def update_route(self, endpoint: str, info: RateLimitInfo) -> None:
+        self.limits[endpoint] = info
+
+    def update_global(self, reset: datetime) -> None:
+        self.global_reset = reset
+
+    async def wait_for_global(self) -> None:
+        async with self._global_lock:
+            if self.global_reset and datetime.now() < self.global_reset:
+                wait_time = (self.global_reset - datetime.now()).total_seconds()
+                logger.warning(f"Waiting for global rate limit: {wait_time}s")
+                await asyncio.sleep(wait_time)
+
+
 class HTTPClient:
     """
     High-performance HTTP client for Discord API.
@@ -174,10 +204,7 @@ class HTTPClient:
         self._session: ClientSession | None = None
         self._session_provider = session_provider
         self._session_closer = session_closer
-        self._rate_limits: dict[str, RateLimitInfo] = {}
-        self._global_rate_limit: datetime | None = None
-        self._global_rate_limit_lock = asyncio.Lock()
-        self._route_locks: dict[str, asyncio.Lock] = {}
+        self._rate_limits = RateLimitManager()
         self._bot_id: str | None = None
 
     def set_bot_id(self, bot_id: str | int | None) -> None:
@@ -298,7 +325,7 @@ class HTTPClient:
 
         # Check for global rate limit
         if headers.get("X-RateLimit-Global") == "true":
-            self._global_rate_limit = reset
+            self._rate_limits.update_global(reset)
             self._log_http_event(
                 "http.rate_limit.global",
                 request_id,
@@ -310,7 +337,7 @@ class HTTPClient:
             )
 
         # Store rate limit info
-        self._rate_limits[route] = info
+        self._rate_limits.update_route(route, info)
 
         if remaining == 0:
             wait_time = reset_after
@@ -443,18 +470,10 @@ class HTTPClient:
         raise RuntimeError("Unexpected error in request loop")
 
     def _get_route_lock(self, endpoint: str) -> asyncio.Lock:
-        lock = self._route_locks.get(endpoint)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._route_locks[endpoint] = lock
-        return lock
+        return self._rate_limits.get_route_lock(endpoint)
 
     async def _wait_for_global_rate_limit(self) -> None:
-        async with self._global_rate_limit_lock:
-            if self._global_rate_limit and datetime.now() < self._global_rate_limit:
-                wait_time = (self._global_rate_limit - datetime.now()).total_seconds()
-                logger.warning(f"Waiting for global rate limit: {wait_time}s")
-                await asyncio.sleep(wait_time)
+        await self._rate_limits.wait_for_global()
 
     async def request(
         self,

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -15,10 +16,17 @@ type Client struct {
 }
 
 func NewClient(config Config, httpClient *http.Client) *Client {
+	config = config.WithDefaults()
 	if httpClient == nil {
 		httpClient = http.DefaultClient
+		if config.ProxyURL != "" {
+			proxyURL, err := url.Parse(config.ProxyURL)
+			if err == nil {
+				httpClient = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+			}
+		}
 	}
-	return &Client{config: config.WithDefaults(), http: httpClient}
+	return &Client{config: config, http: httpClient}
 }
 
 func (c *Client) Endpoint(path string) string {

@@ -4,6 +4,7 @@ type Config struct {
 	Token      string
 	APIVersion string
 	BaseURL    string
+	ProxyURL   string
 }
 
 func (c Config) WithDefaults() Config {

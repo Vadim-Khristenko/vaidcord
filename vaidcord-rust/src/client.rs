@@ -22,10 +22,8 @@ pub struct Client {
 
 impl Client {
     pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            http: reqwest::Client::new(),
-        }
+        let http = build_http_client(&config);
+        Self { config, http }
     }
 
     pub fn with_http_client(config: Config, http: reqwest::Client) -> Self {
@@ -127,6 +125,16 @@ impl Client {
     }
 }
 
+fn build_http_client(config: &Config) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder();
+    if let Some(proxy_url) = &config.proxy_url
+        && let Ok(proxy) = reqwest::Proxy::all(proxy_url)
+    {
+        builder = builder.proxy(proxy);
+    }
+    builder.build().unwrap_or_else(|_| reqwest::Client::new())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,5 +159,12 @@ mod tests {
         let request = client.request_parts("POST", "/channels/1/messages", true);
 
         assert_eq!(request.content_type.as_deref(), Some("application/json"));
+    }
+
+    #[test]
+    fn config_accepts_proxy_url() {
+        let config = Config::new("token").with_proxy_url("http://127.0.0.1:8080");
+
+        assert_eq!(config.proxy_url.as_deref(), Some("http://127.0.0.1:8080"));
     }
 }
