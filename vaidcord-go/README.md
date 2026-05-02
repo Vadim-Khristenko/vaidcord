@@ -9,6 +9,7 @@ Status: **scaffold only**. The first committed surface is intentionally small:
 - config defaults for Discord API v10
 - `net/http` client with JSON request/response handling
 - typed Discord API errors
+- typed `User`, `Channel`, and `Message` response models
 - first REST helpers: `GetCurrentUser`, `FetchChannel`, `SendMessage`
 
 ```go
@@ -23,7 +24,6 @@ message, err := client.SendMessage(
 
 Next steps:
 
-- richer REST resources and typed models
+- richer REST resources
 - gateway identify/heartbeat loop
-- message/channel/user models
 - router and filter primitives compatible with the Python SDK mental model

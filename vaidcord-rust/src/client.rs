@@ -1,10 +1,9 @@
 use serde::{Serialize, de::DeserializeOwned};
-use serde_json::Value;
 
 use crate::USER_AGENT;
 use crate::config::Config;
 use crate::error::{DiscordApiErrorBody, Error};
-use crate::models::MessagePayload;
+use crate::models::{Channel, Message, MessagePayload, User};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestParts {
@@ -97,13 +96,16 @@ impl Client {
         Ok(serde_json::from_str(&text)?)
     }
 
-    pub async fn get_current_user(&self) -> Result<Value, Error> {
-        self.request_json::<Value, Value>(reqwest::Method::GET, "/users/@me", None)
+    pub async fn get_current_user(&self) -> Result<User, Error> {
+        self.request_json::<User, MessagePayload>(reqwest::Method::GET, "/users/@me", None)
             .await
     }
 
-    pub async fn fetch_channel(&self, channel_id: impl std::fmt::Display) -> Result<Value, Error> {
-        self.request_json::<Value, Value>(
+    pub async fn fetch_channel(
+        &self,
+        channel_id: impl std::fmt::Display,
+    ) -> Result<Channel, Error> {
+        self.request_json::<Channel, MessagePayload>(
             reqwest::Method::GET,
             &format!("/channels/{channel_id}"),
             None,
@@ -115,7 +117,7 @@ impl Client {
         &self,
         channel_id: impl std::fmt::Display,
         message: &MessagePayload,
-    ) -> Result<Value, Error> {
+    ) -> Result<Message, Error> {
         self.request_json(
             reqwest::Method::POST,
             &format!("/channels/{channel_id}/messages"),

@@ -6,7 +6,7 @@ pub mod models;
 pub use client::{Client, RequestParts};
 pub use config::Config;
 pub use error::{DiscordApiErrorBody, Error};
-pub use models::MessagePayload;
+pub use models::{Channel, Message, MessagePayload, User};
 
 pub const LIBRARY_NAME: &str = "vaidcord-rust";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

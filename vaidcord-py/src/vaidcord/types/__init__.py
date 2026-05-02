@@ -161,7 +161,7 @@ class ChannelType(Enum):
     GUILD_MEDIA = 16
     MEDIA = 16
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class User:
     """Represents a Discord user."""
 
@@ -201,7 +201,7 @@ class User:
         return self.username
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Guild:
     """Represents a Discord guild (server)."""
 
@@ -265,7 +265,7 @@ class Guild:
         return self.name
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Channel:
     """Represents a Discord channel."""
 
@@ -312,7 +312,7 @@ class Channel:
         return f"<#{self.id}>"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Message:
     """Represents a Discord message."""
 
@@ -416,7 +416,7 @@ class Message:
         return await self.bot.add_reaction(self.channel_id, self.id, emoji)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Ready:
     """Typed payload for the Discord READY gateway event."""
 
@@ -430,7 +430,7 @@ class Ready:
     raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Resume:
     """Typed payload for the Discord RESUMED gateway event."""
 
@@ -440,7 +440,7 @@ class Resume:
     raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DeletedMessage:
     """Typed payload for MESSAGE_DELETE."""
 
@@ -450,7 +450,7 @@ class DeletedMessage:
     raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BulkDeletedMessages:
     """Typed payload for MESSAGE_DELETE_BULK."""
 
@@ -460,7 +460,7 @@ class BulkDeletedMessages:
     raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Reaction:
     """Typed payload for message reaction gateway events."""
 
@@ -473,7 +473,7 @@ class Reaction:
     raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TypingStart:
     """Typed payload for TYPING_START."""
 
@@ -485,7 +485,7 @@ class TypingStart:
     raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PollVote:
     """Typed payload for poll vote gateway events."""
 
@@ -497,7 +497,7 @@ class PollVote:
     raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MessagePin:
     """A channel pin entry returned by the modern channel pins endpoint."""
 
@@ -506,7 +506,7 @@ class MessagePin:
     raw_data: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RawGatewayEvent:
     """Fallback typed wrapper for gateway payloads without a dedicated model."""
 

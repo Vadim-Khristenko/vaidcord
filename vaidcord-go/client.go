@@ -77,20 +77,20 @@ func (c *Client) DoJSON(ctx context.Context, method string, path string, body an
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func (c *Client) GetCurrentUser(ctx context.Context) (map[string]any, error) {
-	var payload map[string]any
+func (c *Client) GetCurrentUser(ctx context.Context) (User, error) {
+	var payload User
 	err := c.DoJSON(ctx, http.MethodGet, "/users/@me", nil, &payload)
 	return payload, err
 }
 
-func (c *Client) FetchChannel(ctx context.Context, channelID string) (map[string]any, error) {
-	var payload map[string]any
+func (c *Client) FetchChannel(ctx context.Context, channelID string) (Channel, error) {
+	var payload Channel
 	err := c.DoJSON(ctx, http.MethodGet, "/channels/"+channelID, nil, &payload)
 	return payload, err
 }
 
-func (c *Client) SendMessage(ctx context.Context, channelID string, message MessagePayload) (map[string]any, error) {
-	var payload map[string]any
+func (c *Client) SendMessage(ctx context.Context, channelID string, message MessagePayload) (Message, error) {
+	var payload Message
 	err := c.DoJSON(ctx, http.MethodPost, "/channels/"+channelID+"/messages", message, &payload)
 	return payload, err
 }

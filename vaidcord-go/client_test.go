@@ -40,7 +40,7 @@ func TestClientGetCurrentUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if user["id"] != "42" {
+	if user.ID != "42" || user.Username != "vaidcord" {
 		t.Fatalf("unexpected user payload: %#v", user)
 	}
 }
@@ -82,5 +82,25 @@ func TestClientSendMessageEncodesJSONAndErrors(t *testing.T) {
 	}
 	if captured["content"] != "hello" {
 		t.Fatalf("unexpected request payload: %#v", captured)
+	}
+}
+
+func TestClientSendMessageDecodesTypedMessage(t *testing.T) {
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"900","channel_id":"123","author":{"id":"42","username":"vaidcord"},"content":"pong"}`)),
+		}, nil
+	})}
+
+	client := NewClient(Config{Token: "token"}, httpClient)
+
+	message, err := client.SendMessage(context.Background(), "123", MessagePayload{Content: "pong"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.ID != "900" || message.Author.Username != "vaidcord" || message.Content != "pong" {
+		t.Fatalf("unexpected typed message: %#v", message)
 	}
 }
