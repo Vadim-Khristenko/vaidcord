@@ -113,6 +113,7 @@ from vaidcord.voice import (
     VoiceServerUpdate,
     VoiceSessionDescription,
     VoiceState,
+    VoiceDatagram,
     VoiceUDPClient,
 )
 

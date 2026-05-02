@@ -9,7 +9,12 @@ from .models import (
     VoiceSessionDescription,
     VoiceState,
 )
-from .udp import VoiceUDPClient, build_ip_discovery_packet, parse_ip_discovery_response
+from .udp import (
+    VoiceDatagram,
+    VoiceUDPClient,
+    build_ip_discovery_packet,
+    parse_ip_discovery_response,
+)
 
 __all__ = [
     "VoiceConnection",
@@ -20,8 +25,8 @@ __all__ = [
     "VoiceServerUpdate",
     "VoiceSessionDescription",
     "VoiceState",
+    "VoiceDatagram",
     "VoiceUDPClient",
     "build_ip_discovery_packet",
     "parse_ip_discovery_response",
 ]
-

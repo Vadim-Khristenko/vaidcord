@@ -137,6 +137,7 @@ __lazy_imports__ = {
     "VoiceServerUpdate": ".voice",
     "VoiceSessionDescription": ".voice",
     "VoiceState": ".voice",
+    "VoiceDatagram": ".voice",
     "VoiceUDPClient": ".voice",
 }
 
@@ -275,6 +276,7 @@ __all__ = [
     "VoiceServerUpdate",
     "VoiceSessionDescription",
     "VoiceState",
+    "VoiceDatagram",
     "VoiceUDPClient",
     # Version
     "__author__",

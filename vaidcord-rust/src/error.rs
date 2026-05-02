@@ -10,6 +10,7 @@ pub struct DiscordApiErrorBody {
 pub enum Error {
     Http(reqwest::Error),
     Decode(serde_json::Error),
+    MissingExtractor(&'static str),
     Api {
         status: reqwest::StatusCode,
         code: Option<i64>,
@@ -23,6 +24,7 @@ impl std::fmt::Display for Error {
         match self {
             Self::Http(error) => write!(formatter, "{error}"),
             Self::Decode(error) => write!(formatter, "{error}"),
+            Self::MissingExtractor(name) => write!(formatter, "missing handler extractor: {name}"),
             Self::Api {
                 status,
                 code,

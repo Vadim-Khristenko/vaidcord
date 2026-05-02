@@ -13,7 +13,7 @@ Status: **scaffold only**. The first committed surface is intentionally small:
 - typed `User`, `Channel`, and `Message` response models
 - first REST helpers: `GetCurrentUser`, `FetchChannel`, `SendMessage`
 - formatter helpers for Discord markdown and mentions
-- first router primitives: `NewRouter`, `OnMessage`, message filters
+- modular router/dispatcher primitives: `NewDispatcher`, `Router.Include`, `Router.Use`, `OnReady`, `OnMessageCreate`
 
 ```go
 client := vaidcord.NewClient(vaidcord.Config{Token: "BOT_TOKEN"}, nil)
@@ -34,7 +34,7 @@ client := vaidcord.NewClient(vaidcord.Config{
 
 ```go
 router := vaidcord.NewRouter()
-router.Message(vaidcord.ContentStartsWith("!ping")).Handle(func(ctx context.Context, message vaidcord.Message) error {
+router.OnMessageCreate(vaidcord.ContentStartsWith("!ping")).Handle(func(ctx context.Context, message vaidcord.Message) error {
     fmt.Println(vaidcord.Bold(message.Content))
     return nil
 })
@@ -44,7 +44,14 @@ if err := <-router.DispatchMessageAsync(context.Background(), message); err != n
 }
 ```
 
-Runnable examples live in `examples/basic` and `examples/router`.
+```go
+dispatcher := vaidcord.NewDispatcher()
+dispatcher.Include(hello.Router(), admin.Router(deps))
+err := dispatcher.StartPolling(ctx, client, vaidcord.WithDropPendingUpdates(true))
+```
+
+Runnable examples live in `examples/basic`, `examples/router`, `examples/modular-basic`,
+`examples/modular-with-deps`, and `examples/router-middleware`.
 
 Next steps:
 

@@ -1,6 +1,6 @@
 use vaidcord::{HandlerResult, Message, Router, content_starts_with};
 
-#[vaidcord::on_message(content_starts_with("!age"))]
+#[vaidcord::on_message(filter = content_starts_with("!age"))]
 fn age(message: &Message) -> HandlerResult {
     println!("{} sent {}", message.author.username, message.content);
     Ok(())

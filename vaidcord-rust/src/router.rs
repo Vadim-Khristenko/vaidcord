@@ -1,9 +1,10 @@
 use crate::error::Error;
+use crate::extract::ExtractBag;
+use crate::filters::{FilterOutcome, MessageFilter};
 use crate::models::Message;
 
 pub type HandlerResult = Result<(), Error>;
-pub type MessageHandler = Box<dyn Fn(&Message) -> HandlerResult + Send + Sync>;
-pub type MessageFilter = Box<dyn Fn(&Message) -> bool + Send + Sync>;
+pub type MessageHandler = Box<dyn Fn(&Message, &ExtractBag) -> HandlerResult + Send + Sync>;
 
 pub struct MessageHandlerDef {
     name: &'static str,
@@ -19,7 +20,7 @@ impl MessageHandlerDef {
         Self {
             name,
             filters,
-            handler: Box::new(handler),
+            handler: Box::new(move |message, _bag| handler(message)),
         }
     }
 
@@ -57,7 +58,7 @@ impl Router {
     {
         self.message_routes.push(MessageRoute {
             filters,
-            handler: Box::new(handler),
+            handler: Box::new(move |message, _bag| handler(message)),
         });
     }
 
@@ -70,10 +71,20 @@ impl Router {
 
     pub fn dispatch_message(&self, message: &Message) -> HandlerResult {
         for route in &self.message_routes {
-            if !route.filters.iter().all(|filter| filter(message)) {
-                continue;
+            let mut bag = ExtractBag::new();
+            let mut rejected = false;
+            for filter in &route.filters {
+                match filter(message, &bag)? {
+                    FilterOutcome::Pass(extracted) => bag.merge(extracted),
+                    FilterOutcome::Reject => {
+                        rejected = true;
+                        break;
+                    }
+                }
             }
-            (route.handler)(message)?;
+            if !rejected {
+                (route.handler)(message, &bag)?;
+            }
         }
         Ok(())
     }
@@ -85,15 +96,7 @@ impl Default for Router {
     }
 }
 
-pub fn content_starts_with(prefix: impl Into<String>) -> MessageFilter {
-    let prefix = prefix.into();
-    Box::new(move |message: &Message| message.content.starts_with(&prefix))
-}
-
-pub fn author_id(user_id: impl Into<String>) -> MessageFilter {
-    let user_id = user_id.into();
-    Box::new(move |message: &Message| message.author.id == user_id)
-}
+pub use crate::filters::{author_id, content_starts_with};
 
 #[macro_export]
 macro_rules! register_on_message {
@@ -179,5 +182,24 @@ mod tests {
 
         router.dispatch_message(&message("plain")).unwrap();
         router.dispatch_message(&message("!ping")).unwrap();
+    }
+
+    #[test]
+    fn command_filter_extracts_args_for_handler() {
+        let mut router = Router::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let handler_calls = Arc::clone(&calls);
+
+        router.on_message_filtered(
+            move |_message: &Message| {
+                handler_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+            vec![crate::command("echo")],
+        );
+
+        router.dispatch_message(&message("plain")).unwrap();
+        router.dispatch_message(&message("!echo hello")).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }
