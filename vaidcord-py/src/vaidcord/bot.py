@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum, IntFlag
 from typing import Any, Literal, cast
 
 import aiohttp
 
+from vaidcord._internal import EventParser, MessageService
 from vaidcord.api_client import APIClient
 from vaidcord.application import Application, ApplicationRoleConnectionMetadata
 from vaidcord.commands import (
@@ -25,29 +24,20 @@ from vaidcord.commands import (
     CommandHandler,
     RegisteredCommand,
 )
-from vaidcord.components import IS_COMPONENTS_V2
-from vaidcord.errors import DiscordAPIError, ForbiddenError, RateLimitError
+from vaidcord.errors import RateLimitError
 from vaidcord.gateway_runtime import GatewayRuntime
 from vaidcord.http import DiscordError
 from vaidcord.logging import set_default_bot_id
 from vaidcord.metadata import __version__, build_user_agent
 from vaidcord.router import Router
 from vaidcord.types import (
-    BulkDeletedMessages,
     Channel,
-    ChannelType,
-    DeletedMessage,
     Event,
     EventType,
     Guild,
     Message,
     MessagePin,
-    PollVote,
-    RawGatewayEvent,
-    Reaction,
     Ready,
-    Resume,
-    TypingStart,
     User,
 )
 from vaidcord.voice import VoiceConnection, VoiceGatewayConfig, VoiceManager
@@ -121,6 +111,22 @@ class BotConfig:
     command_dev_guild_id: int | None = None
     command_sync_mode: Literal["replace", "merge"] = "replace"
     command_sync_guild_ids: tuple[int, ...] = ()
+    keep_raw_data: bool = True
+    """Whether typed events keep a ``raw_data`` copy of the gateway payload.
+
+    Defaults to ``True`` for backwards compatibility. Set to ``False`` to
+    disable population of ``raw_data`` on every parsed model and event,
+    which can substantially reduce allocations for high-throughput bots
+    that don't need direct access to the raw payload (see issue #26).
+    """
+    share_raw_data: bool = True
+    """When ``keep_raw_data`` is ``True``, share the source dict reference.
+
+    Default ``True``. Setting ``False`` restores the legacy behaviour of
+    making a defensive ``dict()`` copy on every parse. The default is safe
+    because the parser receives a fresh ``json.loads()`` dict that is not
+    mutated anywhere else in the framework.
+    """
 
 
 class Bot(Router):
@@ -181,11 +187,22 @@ class Bot(Router):
         self._channels: dict[int, Channel] = {}
         self._user: User | None = None
 
+        # Internal collaborators (issue #32). Bot keeps its public methods
+        # but delegates parsing and message-resource endpoints here so the
+        # facade stops growing every time a new Discord endpoint lands.
+        self._parser = EventParser(self)
+        self._messages = MessageService(self)
+
         # Event handlers for internal events
         self._ready_event = asyncio.Event()
         self._drop_pending_updates = False
         self._registered_commands: list[RegisteredCommand] = []
         self._command_sync_retry_task: asyncio.Task[None] | None = None
+
+    @property
+    def parser(self) -> EventParser:
+        """Return the internal event parser used by services."""
+        return self._parser
 
     def _log_extra(self) -> dict[str, str]:
         """Return logging context for this bot when its identity is known."""
@@ -338,134 +355,20 @@ class Bot(Router):
             wait_timeout=wait_timeout,
         )
 
+    def _raw(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Back-compat shim — see :meth:`EventParser.raw`."""
+        return self._parser.raw(data)
+
     async def _parse_event(self, event_type: EventType, data: dict[str, Any]) -> Event:
-        """Parse raw event data into a typed Event object."""
-        event = Event(type=event_type, data=data, shard_id=self.config.shard_id)
-        event.event_id = str(data.get("id") or data.get("event_id") or uuid.uuid4())
-        event.raw_data = dict(data)
-        event.bot = self
-        if "interaction" in data:
-            event.interaction = data.get("interaction")
+        """Parse raw event data into a typed Event object.
 
-        if event_type == EventType.READY:
-            event.ready = self._parse_ready(data)
-            event.user = event.ready.user
-            event.payload = event.object = event.ready
-        elif event_type == EventType.RESUMED:
-            event.resume = Resume(
-                session_id=self._session_id,
-                sequence=self._sequence,
-                raw_data=dict(data),
-            )
-            event.payload = event.object = event.resume
-        elif event_type in {EventType.MESSAGE_CREATE, EventType.MESSAGE_UPDATE}:
-            event.message = self._parse_message(data)
-            event.user = event.message.author
-            event.channel = event.message.channel
-            event.guild = event.message.guild
-            event.payload = event.object = event.message
-        elif event_type == EventType.MESSAGE_DELETE:
-            deleted = DeletedMessage(
-                id=int(data["id"]),
-                channel_id=int(data["channel_id"]),
-                guild_id=int(data["guild_id"]) if data.get("guild_id") else None,
-                raw_data=dict(data),
-            )
-            event.deleted_message = deleted
-            event.payload = event.object = deleted
-        elif event_type == EventType.MESSAGE_DELETE_BULK:
-            deleted_many = BulkDeletedMessages(
-                ids=[int(item) for item in data.get("ids", [])],
-                channel_id=int(data["channel_id"]),
-                guild_id=int(data["guild_id"]) if data.get("guild_id") else None,
-                raw_data=dict(data),
-            )
-            event.deleted_messages = deleted_many
-            event.payload = event.object = deleted_many
-        elif event_type in {
-            EventType.MESSAGE_REACTION_ADD,
-            EventType.MESSAGE_REACTION_REMOVE,
-            EventType.MESSAGE_REACTION_REMOVE_ALL,
-            EventType.MESSAGE_REACTION_REMOVE_EMOJI,
-        }:
-            reaction = Reaction(
-                user_id=int(data["user_id"]) if data.get("user_id") else None,
-                channel_id=int(data["channel_id"]),
-                message_id=int(data["message_id"]),
-                guild_id=int(data["guild_id"]) if data.get("guild_id") else None,
-                member=data.get("member"),
-                emoji=data.get("emoji", {}),
-                raw_data=dict(data),
-            )
-            event.reaction = reaction
-            event.payload = event.object = reaction
-        elif event_type == EventType.TYPING_START:
-            typing = TypingStart(
-                channel_id=int(data["channel_id"]),
-                user_id=int(data["user_id"]),
-                timestamp=int(data.get("timestamp", 0)),
-                guild_id=int(data["guild_id"]) if data.get("guild_id") else None,
-                member=data.get("member"),
-                raw_data=dict(data),
-            )
-            event.typing = typing
-            event.payload = event.object = typing
-        elif event_type in {EventType.MESSAGE_POLL_VOTE_ADD, EventType.MESSAGE_POLL_VOTE_REMOVE}:
-            poll_vote = PollVote(
-                user_id=int(data["user_id"]),
-                channel_id=int(data["channel_id"]),
-                message_id=int(data["message_id"]),
-                answer_id=int(data["answer_id"]),
-                guild_id=int(data["guild_id"]) if data.get("guild_id") else None,
-                raw_data=dict(data),
-            )
-            event.poll_vote = poll_vote
-            event.payload = event.object = poll_vote
-        elif event_type in {EventType.GUILD_CREATE, EventType.GUILD_UPDATE, EventType.GUILD_DELETE}:
-            event.guild = self._parse_guild(data)
-            event.payload = event.object = event.guild
-        elif event_type in {
-            EventType.CHANNEL_CREATE,
-            EventType.CHANNEL_UPDATE,
-            EventType.CHANNEL_DELETE,
-            EventType.THREAD_CREATE,
-            EventType.THREAD_UPDATE,
-            EventType.THREAD_DELETE,
-        }:
-            event.channel = self._parse_channel(data)
-            event.payload = event.object = event.channel
-        else:
-            event.payload = event.object = RawGatewayEvent(
-                type=event_type,
-                data=dict(data),
-                raw_data=dict(data),
-            )
-
-        if "user" in data:
-            event.user = self._parse_user(data["user"])
-        if "guild_id" in data:
-            guild_id = int(data["guild_id"])
-            event.guild = event.guild or self._guilds.get(guild_id)
-        if "channel_id" in data and data.get("channel_id") is not None:
-            channel_id = int(data["channel_id"])
-            event.channel = event.channel or self._channels.get(channel_id)
-
-        return event
+        Delegates to :class:`EventParser`; method retained on Bot for
+        back-compat with subclasses that override it.
+        """
+        return await self._parser.parse_event(event_type, data)
 
     def _parse_ready(self, data: dict[str, Any]) -> Ready:
-        shard_data = data.get("shard")
-        shard = (int(shard_data[0]), int(shard_data[1])) if shard_data else None
-        return Ready(
-            version=data.get("v"),
-            user=self._parse_user(data["user"]) if data.get("user") else None,
-            guilds=[self._parse_guild(item) for item in data.get("guilds", [])],
-            session_id=data.get("session_id"),
-            resume_gateway_url=data.get("resume_gateway_url"),
-            shard=shard,
-            application=data.get("application"),
-            raw_data=dict(data),
-        )
-
+        return self._parser.parse_ready(data)
     async def _handle_ready(self, data: dict[str, Any]) -> None:
         """Handle the READY event."""
         user_data = data.get("user", {})
@@ -746,22 +649,7 @@ class Bot(Router):
             self._guilds[message.guild.id] = message.guild
 
     def _parse_user(self, data: dict[str, Any]) -> User:
-        """Parse user data into a User object."""
-        return User(
-            id=int(data["id"]),
-            username=data.get("username", ""),
-            discriminator=data.get("discriminator", "0"),
-            global_name=data.get("global_name"),
-            bot=data.get("bot", False),
-            system=data.get("system", False),
-            avatar=data.get("avatar"),
-            banner=data.get("banner"),
-            accent_color=data.get("accent_color"),
-            avatar_decoration_data=data.get("avatar_decoration_data"),
-            collectibles=data.get("collectibles"),
-            primary_guild=data.get("primary_guild"),
-        )
-
+        return self._parser.parse_user(data)
     def _remember_bot_user(self, user: User) -> None:
         """Cache current bot user and propagate its id to log contexts."""
         self._user = user
@@ -770,198 +658,13 @@ class Bot(Router):
         set_default_bot_id(user.id)
 
     def _parse_guild(self, data: dict[str, Any]) -> Guild:
-        """Parse guild data into a Guild object."""
-        return Guild(
-            id=int(data["id"]),
-            name=data.get("name", ""),
-            icon=data.get("icon"),
-            icon_hash=data.get("icon_hash"),
-            splash=data.get("splash"),
-            discovery_splash=data.get("discovery_splash"),
-            owner=data.get("owner", False),
-            owner_id=int(data["owner_id"]) if data.get("owner_id") else None,
-            permissions=data.get("permissions"),
-            region=data.get("region"),
-            afk_channel_id=int(data["afk_channel_id"]) if data.get("afk_channel_id") else None,
-            afk_timeout=data.get("afk_timeout"),
-            widget_enabled=data.get("widget_enabled"),
-            widget_channel_id=int(data["widget_channel_id"]) if data.get("widget_channel_id") else None,
-            verification_level=data.get("verification_level"),
-            default_message_notifications=data.get("default_message_notifications"),
-            explicit_content_filter=data.get("explicit_content_filter"),
-            roles=data.get("roles", []),
-            emojis=data.get("emojis", []),
-            features=data.get("features", []),
-            mfa_level=data.get("mfa_level"),
-            application_id=int(data["application_id"]) if data.get("application_id") else None,
-            system_channel_id=int(data["system_channel_id"]) if data.get("system_channel_id") else None,
-            system_channel_flags=data.get("system_channel_flags"),
-            rules_channel_id=int(data["rules_channel_id"]) if data.get("rules_channel_id") else None,
-            joined_at=data.get("joined_at"),
-            large=data.get("large"),
-            unavailable=data.get("unavailable"),
-            member_count=data.get("member_count"),
-            voice_states=data.get("voice_states", []),
-            members=data.get("members", []),
-            channels=data.get("channels", []),
-            threads=data.get("threads", []),
-            presences=data.get("presences", []),
-            max_presences=data.get("max_presences"),
-            max_members=data.get("max_members"),
-            vanity_url_code=data.get("vanity_url_code"),
-            description=data.get("description"),
-            banner=data.get("banner"),
-            premium_tier=data.get("premium_tier"),
-            premium_subscription_count=data.get("premium_subscription_count"),
-            preferred_locale=data.get("preferred_locale"),
-            public_updates_channel_id=int(data["public_updates_channel_id"]) if data.get("public_updates_channel_id") else None,
-            max_video_channel_users=data.get("max_video_channel_users"),
-            approximate_member_count=data.get("approximate_member_count"),
-            approximate_presence_count=data.get("approximate_presence_count"),
-            welcome_screen=data.get("welcome_screen"),
-            nsfw_level=data.get("nsfw_level"),
-            stickers=data.get("stickers", []),
-            premium_progress_bar_enabled=data.get("premium_progress_bar_enabled"),
-            safety_alerts_channel_id=int(data["safety_alerts_channel_id"]) if data.get("safety_alerts_channel_id") else None,
-            incidents_data=data.get("incidents_data"),
-            raw_data=dict(data),
-        )
-
+        return self._parser.parse_guild(data)
     def _parse_channel(self, data: dict[str, Any]) -> Channel:
-        """Parse channel data into a Channel object."""
-        try:
-            channel_type = ChannelType(data.get("type", 0))
-        except ValueError:
-            channel_type = ChannelType.TEXT
-        return Channel(
-            id=int(data["id"]),
-            type=channel_type,
-            guild_id=int(data["guild_id"]) if data.get("guild_id") else None,
-            name=data.get("name"),
-            topic=data.get("topic"),
-            position=data.get("position"),
-            permission_overwrites=data.get("permission_overwrites", []),
-            nsfw=data.get("nsfw", False),
-            last_message_id=int(data["last_message_id"]) if data.get("last_message_id") else None,
-            bitrate=data.get("bitrate"),
-            user_limit=data.get("user_limit"),
-            rate_limit_per_user=data.get("rate_limit_per_user"),
-            recipients=[self._parse_user(item) for item in data.get("recipients", [])],
-            icon=data.get("icon"),
-            owner_id=int(data["owner_id"]) if data.get("owner_id") else None,
-            application_id=int(data["application_id"]) if data.get("application_id") else None,
-            managed=data.get("managed"),
-            parent_id=int(data["parent_id"]) if data.get("parent_id") else None,
-            last_pin_timestamp=data.get("last_pin_timestamp"),
-            rtc_region=data.get("rtc_region"),
-            video_quality_mode=data.get("video_quality_mode"),
-            message_count=data.get("message_count"),
-            member_count=data.get("member_count"),
-            thread_metadata=data.get("thread_metadata", {}),
-            member=data.get("member", {}),
-            default_auto_archive_duration=data.get("default_auto_archive_duration"),
-            permissions=data.get("permissions"),
-            flags=data.get("flags"),
-            total_message_sent=data.get("total_message_sent"),
-            available_tags=data.get("available_tags", []),
-            applied_tags=[int(item) for item in data.get("applied_tags", [])],
-            default_reaction_emoji=data.get("default_reaction_emoji"),
-            default_thread_rate_limit_per_user=data.get("default_thread_rate_limit_per_user"),
-            default_sort_order=data.get("default_sort_order"),
-            default_forum_layout=data.get("default_forum_layout"),
-            raw_data=dict(data),
-        )
-
+        return self._parser.parse_channel(data)
     def _parse_message(self, data: dict[str, Any]) -> Message:
-        """Parse message data into a Message object."""
-        # Parse timestamp
-        ts_str = data.get("timestamp", "")
-        timestamp = (
-            datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-            if ts_str
-            else datetime.now()
-        )
-        edited_ts_str = data.get("edited_timestamp")
-        edited_timestamp = (
-            datetime.fromisoformat(edited_ts_str.replace("Z", "+00:00"))
-            if edited_ts_str
-            else None
-        )
-
-        channel_id = int(data.get("channel_id", data.get("id", 0)))
-        channel = self._channels.get(channel_id)
-        if channel is None:
-            default_type = ChannelType.TEXT if data.get("guild_id") else ChannelType.DM
-            channel = Channel(id=channel_id, type=default_type, guild_id=int(data["guild_id"]) if data.get("guild_id") else None)
-
-        author_data = data.get("author") or {"id": "0", "username": "", "discriminator": "0"}
-        author = self._parse_user(author_data)
-
-        # Parse guild if present
-        guild = None
-        if "guild_id" in data:
-            guild_id = int(data["guild_id"])
-            guild = self._guilds.get(guild_id)
-
-        mentions = [self._parse_user(u) for u in data.get("mentions", [])]
-        mention_channels = [self._parse_channel(item) for item in data.get("mention_channels", [])]
-        referenced_message = None
-        if isinstance(data.get("referenced_message"), dict):
-            referenced_message = self._parse_message(data["referenced_message"])
-        thread = self._parse_channel(data["thread"]) if isinstance(data.get("thread"), dict) else None
-
-        return Message(
-            id=int(data["id"]),
-            channel=channel,
-            author=author,
-            content=data.get("content", ""),
-            timestamp=timestamp,
-            edited_timestamp=edited_timestamp,
-            tts=data.get("tts", False),
-            mention_everyone=data.get("mention_everyone", False),
-            mentions=mentions,
-            mention_roles=[int(r) for r in data.get("mention_roles", [])],
-            mention_channels=mention_channels,
-            attachments=data.get("attachments", []),
-            embeds=data.get("embeds", []),
-            reactions=data.get("reactions", []),
-            nonce=data.get("nonce"),
-            pinned=data.get("pinned", False),
-            webhook_id=int(data["webhook_id"]) if data.get("webhook_id") else None,
-            type=data.get("type"),
-            activity=data.get("activity", {}),
-            application=data.get("application", {}),
-            application_id=int(data["application_id"]) if data.get("application_id") else None,
-            message_reference=data.get("message_reference", {}),
-            message_snapshots=data.get("message_snapshots", []),
-            flags=data.get("flags"),
-            referenced_message=referenced_message,
-            interaction_metadata=data.get("interaction_metadata", {}),
-            interaction=data.get("interaction", {}),
-            thread=thread,
-            components=data.get("components", []),
-            sticker_items=data.get("sticker_items", []),
-            stickers=data.get("stickers", []),
-            position=data.get("position"),
-            role_subscription_data=data.get("role_subscription_data", {}),
-            resolved=data.get("resolved", {}),
-            poll=data.get("poll"),
-            call=data.get("call"),
-            shared_client_theme=data.get("shared_client_theme"),
-            guild=guild,
-            member=data.get("member", {}),
-            raw_data=dict(data),
-            bot=self,
-        )
-
+        return self._parser.parse_message(data)
     def _parse_message_pin(self, data: dict[str, Any]) -> MessagePin:
-        pinned_at = datetime.fromisoformat(data["pinned_at"].replace("Z", "+00:00"))
-        return MessagePin(
-            pinned_at=pinned_at,
-            message=self._parse_message(data["message"]),
-            raw_data=dict(data),
-        )
-
+        return self._parser.parse_message_pin(data)
     async def _receive_messages(self) -> None:
         await self.runtime.run()
 
@@ -1034,39 +737,19 @@ class Bot(Router):
         flags: int | None = None,
         poll: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """
-        Send a message with a convenient async API.
-
-        This method is a higher-level wrapper around the raw HTTP request.
-        """
-        payload: dict[str, Any] = {"tts": tts}
-        if content is not None:
-            payload["content"] = content
-        if embeds:
-            payload["embeds"] = embeds
-        if allowed_mentions is not None:
-            payload["allowed_mentions"] = allowed_mentions
-        if components:
-            payload["components"] = components
-        if sticker_ids:
-            payload["sticker_ids"] = sticker_ids
-        if message_reference is not None:
-            payload["message_reference"] = message_reference
-        if flags is not None:
-            payload["flags"] = flags
-        if poll is not None:
-            payload["poll"] = poll
-        has_sendable_content = any(
-            payload.get(field)
-            for field in ("content", "embeds", "components", "sticker_ids", "poll")
-        ) or message_reference is not None
-        if not has_sendable_content:
-            raise ValueError(
-                "send_message requires at least one of content/embeds/components/"
-                "sticker_ids/message_reference"
-            )
-        return await self.request("POST", f"/channels/{channel_id}/messages", json=payload)
-
+        """Send a message; delegates to :class:`MessageService`."""
+        return await self._messages.send_message(
+            channel_id,
+            content,
+            tts=tts,
+            embeds=embeds,
+            allowed_mentions=allowed_mentions,
+            components=components,
+            sticker_ids=sticker_ids,
+            message_reference=message_reference,
+            flags=flags,
+            poll=poll,
+        )
     async def reply(
         self,
         channel_id: int,
@@ -1077,18 +760,10 @@ class Bot(Router):
         allowed_mentions: dict[str, Any] | None = None,
         mention_author: bool = True,
     ) -> dict[str, Any]:
-        """Reply to an existing message."""
-        message_reference = {"message_id": str(message_id)}
-        if not mention_author:
-            allowed_mentions = {**(allowed_mentions or {}), "replied_user": False}
-        return await self.send_message(
-            channel_id=channel_id,
-            content=content,
-            tts=tts,
-            allowed_mentions=allowed_mentions,
-            message_reference=message_reference,
+        return await self._messages.reply(
+            channel_id, message_id, content,
+            tts=tts, allowed_mentions=allowed_mentions, mention_author=mention_author,
         )
-
     async def send_components_v2(
         self,
         channel_id: int,
@@ -1097,68 +772,14 @@ class Bot(Router):
         allowed_mentions: dict[str, Any] | None = None,
         flags: int = 0,
     ) -> dict[str, Any]:
-        """Send a Components V2-only message."""
-        return await self.send_message(
-            channel_id=channel_id,
-            components=components,
-            allowed_mentions=allowed_mentions,
-            flags=flags | IS_COMPONENTS_V2,
+        return await self._messages.send_components_v2(
+            channel_id, components,
+            allowed_mentions=allowed_mentions, flags=flags,
         )
-
     async def send_dm(self, user_id: int, content: str, **kwargs: Any) -> Message:
-        """Open (or fetch) a DM channel with a user and send a message."""
-        try:
-            dm_channel = await self.request(
-                "POST",
-                "/users/@me/channels",
-                json={"recipient_id": str(user_id)},
-            )
-        except DiscordAPIError as exc:
-            if exc.status == 429:
-                raise RateLimitError(
-                    "Rate limited while opening DM channel",
-                    retry_after=0.0,
-                    global_limit=False,
-                    raw_data=exc.raw_data,
-                ) from exc
-            if exc.status == 403:
-                raise ForbiddenError(
-                    "Cannot open DM channel. User may have DMs disabled or no shared server/permissions.",
-                    raw_data=exc.raw_data,
-                ) from exc
-            raise
-
-        channel_id = int(dm_channel["id"])
-        try:
-            message_data = await self.send_message(
-                channel_id=channel_id,
-                content=content,
-                **kwargs,
-            )
-        except DiscordAPIError as exc:
-            if exc.status == 429:
-                raise RateLimitError(
-                    "Rate limited while sending DM message",
-                    retry_after=0.0,
-                    global_limit=False,
-                    raw_data=exc.raw_data,
-                ) from exc
-            if exc.status == 403:
-                raise ForbiddenError(
-                    "Cannot send DM. User may have DMs disabled or no shared server/permissions.",
-                    raw_data=exc.raw_data,
-                ) from exc
-            raise
-
-        message = self._parse_message(message_data)
-        self._channels[message.channel.id] = message.channel
-        self._users[message.author.id] = message.author
-        return message
-
+        return await self._messages.send_dm(user_id, content, **kwargs)
     async def send_message_to_user(self, user_id: int, content: str, **kwargs: Any) -> Message:
-        """Alias for send_dm for semantic readability."""
-        return await self.send_dm(user_id=user_id, content=content, **kwargs)
-
+        return await self._messages.send_message_to_user(user_id, content, **kwargs)
     async def send_poll(
         self,
         channel_id: int,
@@ -1169,46 +790,14 @@ class Bot(Router):
         allow_multiselect: bool = False,
         content: str | None = None,
     ) -> dict[str, Any]:
-        """
-        Send a Discord poll message.
-
-        Based on Discord poll create request object:
-        - up to 10 answers
-        - duration in hours (max 32 days = 768h)
-        """
-        if not question.strip():
-            raise ValueError("Poll question cannot be empty")
-        if len(answers) < 2:
-            raise ValueError("Poll requires at least 2 answers")
-        if len(answers) > 10:
-            raise ValueError("Poll supports at most 10 answers")
-        if duration_hours < 1 or duration_hours > 768:
-            raise ValueError("Poll duration must be between 1 and 768 hours")
-
-        normalized_answers = []
-        for answer in answers:
-            value = answer.strip()
-            if not value:
-                raise ValueError("Poll answers cannot be empty")
-            normalized_answers.append({"poll_media": {"text": value}})
-
-        poll_payload: dict[str, Any] = {
-            "question": {"text": question.strip()},
-            "answers": normalized_answers,
-            "duration": duration_hours,
-            "allow_multiselect": allow_multiselect,
-        }
-
-        return await self.send_message(
-            channel_id=channel_id,
+        return await self._messages.send_poll(
+            channel_id, question, answers,
+            duration_hours=duration_hours,
+            allow_multiselect=allow_multiselect,
             content=content,
-            poll=poll_payload,
         )
-
     async def trigger_typing(self, channel_id: int) -> None:
-        """Trigger a typing indicator in a channel."""
-        await self.api_client.trigger_typing(channel_id)
-
+        await self._messages.trigger_typing(channel_id)
     async def list_messages(
         self,
         channel_id: int,
@@ -1218,39 +807,21 @@ class Bot(Router):
         after: int | None = None,
         around: int | None = None,
     ) -> list[Message]:
-        """List and parse messages for a channel."""
-        items = await self.api_client.list_messages(
-            channel_id,
-            limit=limit,
-            before=before,
-            after=after,
-            around=around,
+        return await self._messages.list_messages(
+            channel_id, limit=limit, before=before, after=after, around=around,
         )
-        return [self._parse_message(item) for item in items]
-
     async def fetch_message(self, channel_id: int, message_id: int) -> Message:
-        """Fetch and parse a single message from a channel."""
-        data = await self.api_client.fetch_message(channel_id, message_id)
-        return self._parse_message(data)
-
+        return await self._messages.fetch_message(channel_id, message_id)
     async def edit_message(self, channel_id: int, message_id: int, **payload: Any) -> Message:
-        """Edit a previously sent message."""
-        data = await self.api_client.edit_message(channel_id, message_id, payload)
-        return self._parse_message(data)
-
+        return await self._messages.edit_message(channel_id, message_id, **payload)
     async def delete_message(self, channel_id: int, message_id: int) -> dict[str, Any]:
-        """Delete a message and clear it from the local cache path if present."""
-        return await self.api_client.delete_message(channel_id, message_id)
-
+        return await self._messages.delete_message(channel_id, message_id)
     async def crosspost_message(self, channel_id: int, message_id: int) -> dict[str, Any]:
-        return await self.api_client.crosspost_message(channel_id, message_id)
-
+        return await self._messages.crosspost_message(channel_id, message_id)
     async def add_reaction(self, channel_id: int, message_id: int, emoji: str) -> dict[str, Any]:
-        return await self.api_client.add_reaction(channel_id, message_id, emoji)
-
+        return await self._messages.add_reaction(channel_id, message_id, emoji)
     async def delete_own_reaction(self, channel_id: int, message_id: int, emoji: str) -> dict[str, Any]:
-        return await self.api_client.delete_own_reaction(channel_id, message_id, emoji)
-
+        return await self._messages.delete_own_reaction(channel_id, message_id, emoji)
     async def delete_user_reaction(
         self,
         channel_id: int,
@@ -1258,25 +829,17 @@ class Bot(Router):
         emoji: str,
         user_id: int,
     ) -> dict[str, Any]:
-        return await self.api_client.delete_user_reaction(channel_id, message_id, emoji, user_id)
-
+        return await self._messages.delete_user_reaction(channel_id, message_id, emoji, user_id)
     async def list_reactions(self, channel_id: int, message_id: int, emoji: str, **params: Any) -> list[User]:
-        items = await self.api_client.list_reactions(channel_id, message_id, emoji, **params)
-        return [self._parse_user(item) for item in items]
-
+        return await self._messages.list_reactions(channel_id, message_id, emoji, **params)
     async def clear_reactions(self, channel_id: int, message_id: int) -> dict[str, Any]:
-        return await self.api_client.clear_reactions(channel_id, message_id)
-
+        return await self._messages.clear_reactions(channel_id, message_id)
     async def clear_reaction(self, channel_id: int, message_id: int, emoji: str) -> dict[str, Any]:
-        return await self.api_client.clear_reaction(channel_id, message_id, emoji)
-
+        return await self._messages.clear_reaction(channel_id, message_id, emoji)
     async def bulk_delete_messages(self, channel_id: int, message_ids: list[int]) -> dict[str, Any]:
-        return await self.api_client.bulk_delete_messages(channel_id, message_ids)
-
+        return await self._messages.bulk_delete_messages(channel_id, message_ids)
     async def list_pins(self, channel_id: int) -> list[Message]:
-        items = await self.api_client.list_pins(channel_id)
-        return [self._parse_message(item) for item in items]
-
+        return await self._messages.list_pins(channel_id)
     async def get_channel_pins(
         self,
         channel_id: int,
@@ -1284,32 +847,15 @@ class Bot(Router):
         before: str | None = None,
         limit: int = 50,
     ) -> dict[str, Any]:
-        """Fetch channel pins using Discord's modern paginated pins endpoint."""
-        data = await self.api_client.get_channel_pins(
-            channel_id,
-            before=before,
-            limit=limit,
-        )
-        items = data.get("items", [])
-        return {
-            **data,
-            "items": [self._parse_message_pin(item) for item in items],
-        }
-
+        return await self._messages.get_channel_pins(channel_id, before=before, limit=limit)
     async def pin_message(self, channel_id: int, message_id: int) -> dict[str, Any]:
-        return await self.api_client.pin_message(channel_id, message_id)
-
+        return await self._messages.pin_message(channel_id, message_id)
     async def unpin_message(self, channel_id: int, message_id: int) -> dict[str, Any]:
-        return await self.api_client.unpin_message(channel_id, message_id)
-
+        return await self._messages.unpin_message(channel_id, message_id)
     async def pin_channel_message(self, channel_id: int, message_id: int) -> dict[str, Any]:
-        """Pin a message using Discord's modern /messages/pins route."""
-        return await self.api_client.pin_channel_message(channel_id, message_id)
-
+        return await self._messages.pin_channel_message(channel_id, message_id)
     async def unpin_channel_message(self, channel_id: int, message_id: int) -> dict[str, Any]:
-        """Unpin a message using Discord's modern /messages/pins route."""
-        return await self.api_client.unpin_channel_message(channel_id, message_id)
-
+        return await self._messages.unpin_channel_message(channel_id, message_id)
     async def get_poll_answer_voters(
         self,
         channel_id: int,
@@ -1317,20 +863,11 @@ class Bot(Router):
         answer_id: int,
         **params: Any,
     ) -> list[User]:
-        """Get users who voted for a poll answer."""
-        data = await self.api_client.get_poll_answer_voters(
-            channel_id,
-            message_id,
-            answer_id,
-            **params,
+        return await self._messages.get_poll_answer_voters(
+            channel_id, message_id, answer_id, **params,
         )
-        return [self._parse_user(item) for item in data.get("users", [])]
-
     async def end_poll(self, channel_id: int, message_id: int) -> Message:
-        """Immediately end a poll owned by the current bot user."""
-        data = await self.api_client.end_poll(channel_id, message_id)
-        return self._parse_message(data)
-
+        return await self._messages.end_poll(channel_id, message_id)
     async def delete_webhook(self, *, drop_pending_updates: bool = False) -> dict[str, Any]:
         """Compatibility helper for aiogram-like startup flows."""
         if "discord.com/api" in self.config.base_url:

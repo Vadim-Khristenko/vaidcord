@@ -44,6 +44,11 @@ type route struct {
 	filters     []Filter
 	middlewares []Middleware
 	handler     Handler
+	// wrapped is the handler chain after the middleware stack has been
+	// composed. It is populated lazily by Dispatcher.Include so that the
+	// per-event hot path only needs a single function call instead of
+	// rebuilding the closure chain on every dispatch.
+	wrapped Handler
 }
 
 type Router struct {

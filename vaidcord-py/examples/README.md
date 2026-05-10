@@ -13,12 +13,13 @@ The bot examples define routers at module level and let `build_dispatcher()` onl
 - [filters_showcase.py](filters_showcase.py) - class-based filters + MagicFilter/MagicData/BotFilter usage with shortcut decorators.
 - [fsm_conversation.py](fsm_conversation.py) - a multi-step profile flow using `StatesGroup`, `State`, and injected `FSMContext`.
 - [mock_testing.py](mock_testing.py) - deterministic testing with the mock layer.
-- [mock_server_ui.py](mock_server_ui.py) - run the local mock Discord server with the AMOLED browser UI.
+- [mock_server_ui.py](mock_server_ui.py) - run the local mock Discord server with the Discord-styled browser UI (server bar, channel list, member panel, REST inspector).
 - [oauth2_examples.py](oauth2_examples.py) - the minimal OAuth2 authorization URL helper.
 - [oauth2_workflow.py](oauth2_workflow.py) - a richer OAuth2 install and token helper example.
 - [send_dm_to_user.py](send_dm_to_user.py) - open a user DM channel and send a direct message by user ID.
 - [slash_commands.py](slash_commands.py) - decorator-based slash command registration with typed option access.
 - [voice_showcase.py](voice_showcase.py) - combined voice showcase (play file, raw stream, speaking flags, silence tail).
+- [voice_dave_reference.py](voice_dave_reference.py) - run the new `vaidcord.voice.dave` subpackage end-to-end with the in-process MLS reference backend.
 
 ## Run them
 
@@ -36,6 +37,7 @@ uv run python examples/oauth2_workflow.py
 uv run python examples/send_dm_to_user.py 123456789012345678 "Hello from VaidCord"
 uv run python examples/slash_commands.py
 uv run python examples/voice_showcase.py
+uv run python examples/voice_dave_reference.py
 ```
 
 The bot examples expect a `DISCORD_BOT_TOKEN` environment variable.

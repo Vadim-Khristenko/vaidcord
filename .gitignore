@@ -43,6 +43,7 @@ test-run/
 *.log
 
 # Environment files
+scripts/
 .env
 .env.local
 *.env.*
