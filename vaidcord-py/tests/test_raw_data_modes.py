@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from vaidcord.bot import _EMPTY_RAW, Bot, BotConfig
+from vaidcord._internal.event_parser import _EMPTY_RAW
+from vaidcord.bot import Bot, BotConfig
 from vaidcord.types import EventType
 
 SAMPLE_PAYLOAD = {
