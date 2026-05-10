@@ -54,6 +54,10 @@ from vaidcord.voice import VoiceConnection, VoiceGatewayConfig, VoiceManager
 
 logger = logging.getLogger(__name__)
 
+# Shared empty mapping used as `raw_data=` when keep_raw_data is disabled. A
+# single instance avoids allocating a fresh empty dict per parsed object.
+_EMPTY_RAW: dict[str, Any] = {}
+
 
 class BotState(Enum):
     """Lifecycle states for the bot connection."""
@@ -121,6 +125,22 @@ class BotConfig:
     command_dev_guild_id: int | None = None
     command_sync_mode: Literal["replace", "merge"] = "replace"
     command_sync_guild_ids: tuple[int, ...] = ()
+    keep_raw_data: bool = True
+    """Whether typed events keep a ``raw_data`` copy of the gateway payload.
+
+    Defaults to ``True`` for backwards compatibility. Set to ``False`` to
+    disable population of ``raw_data`` on every parsed model and event,
+    which can substantially reduce allocations for high-throughput bots
+    that don't need direct access to the raw payload (see issue #26).
+    """
+    share_raw_data: bool = True
+    """When ``keep_raw_data`` is ``True``, share the source dict reference.
+
+    Default ``True``. Setting ``False`` restores the legacy behaviour of
+    making a defensive ``dict()`` copy on every parse. The default is safe
+    because the parser receives a fresh ``json.loads()`` dict that is not
+    mutated anywhere else in the framework.
+    """
 
 
 class Bot(Router):
@@ -338,11 +358,25 @@ class Bot(Router):
             wait_timeout=wait_timeout,
         )
 
+    def _raw(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Return the value to assign to ``raw_data=`` for a parsed model.
+
+        Honours :attr:`BotConfig.keep_raw_data` and
+        :attr:`BotConfig.share_raw_data`. Defaults skip the per-parse
+        ``dict(data)`` copy that issue #26 identified as a major source of
+        allocation pressure on hot event paths.
+        """
+        if not self.config.keep_raw_data:
+            return _EMPTY_RAW
+        if self.config.share_raw_data:
+            return data
+        return dict(data)
+
     async def _parse_event(self, event_type: EventType, data: dict[str, Any]) -> Event:
         """Parse raw event data into a typed Event object."""
         event = Event(type=event_type, data=data, shard_id=self.config.shard_id)
         event.event_id = str(data.get("id") or data.get("event_id") or uuid.uuid4())
-        event.raw_data = dict(data)
+        event.raw_data = self._raw(data)
         event.bot = self
         if "interaction" in data:
             event.interaction = data.get("interaction")
@@ -355,7 +389,7 @@ class Bot(Router):
             event.resume = Resume(
                 session_id=self._session_id,
                 sequence=self._sequence,
-                raw_data=dict(data),
+                raw_data=self._raw(data),
             )
             event.payload = event.object = event.resume
         elif event_type in {EventType.MESSAGE_CREATE, EventType.MESSAGE_UPDATE}:
@@ -369,7 +403,7 @@ class Bot(Router):
                 id=int(data["id"]),
                 channel_id=int(data["channel_id"]),
                 guild_id=int(data["guild_id"]) if data.get("guild_id") else None,
-                raw_data=dict(data),
+                raw_data=self._raw(data),
             )
             event.deleted_message = deleted
             event.payload = event.object = deleted
@@ -378,7 +412,7 @@ class Bot(Router):
                 ids=[int(item) for item in data.get("ids", [])],
                 channel_id=int(data["channel_id"]),
                 guild_id=int(data["guild_id"]) if data.get("guild_id") else None,
-                raw_data=dict(data),
+                raw_data=self._raw(data),
             )
             event.deleted_messages = deleted_many
             event.payload = event.object = deleted_many
@@ -395,7 +429,7 @@ class Bot(Router):
                 guild_id=int(data["guild_id"]) if data.get("guild_id") else None,
                 member=data.get("member"),
                 emoji=data.get("emoji", {}),
-                raw_data=dict(data),
+                raw_data=self._raw(data),
             )
             event.reaction = reaction
             event.payload = event.object = reaction
@@ -406,7 +440,7 @@ class Bot(Router):
                 timestamp=int(data.get("timestamp", 0)),
                 guild_id=int(data["guild_id"]) if data.get("guild_id") else None,
                 member=data.get("member"),
-                raw_data=dict(data),
+                raw_data=self._raw(data),
             )
             event.typing = typing
             event.payload = event.object = typing
@@ -417,7 +451,7 @@ class Bot(Router):
                 message_id=int(data["message_id"]),
                 answer_id=int(data["answer_id"]),
                 guild_id=int(data["guild_id"]) if data.get("guild_id") else None,
-                raw_data=dict(data),
+                raw_data=self._raw(data),
             )
             event.poll_vote = poll_vote
             event.payload = event.object = poll_vote
@@ -437,8 +471,8 @@ class Bot(Router):
         else:
             event.payload = event.object = RawGatewayEvent(
                 type=event_type,
-                data=dict(data),
-                raw_data=dict(data),
+                data=self._raw(data),
+                raw_data=self._raw(data),
             )
 
         if "user" in data:
@@ -463,7 +497,7 @@ class Bot(Router):
             resume_gateway_url=data.get("resume_gateway_url"),
             shard=shard,
             application=data.get("application"),
-            raw_data=dict(data),
+            raw_data=self._raw(data),
         )
 
     async def _handle_ready(self, data: dict[str, Any]) -> None:
@@ -824,7 +858,7 @@ class Bot(Router):
             premium_progress_bar_enabled=data.get("premium_progress_bar_enabled"),
             safety_alerts_channel_id=int(data["safety_alerts_channel_id"]) if data.get("safety_alerts_channel_id") else None,
             incidents_data=data.get("incidents_data"),
-            raw_data=dict(data),
+            raw_data=self._raw(data),
         )
 
     def _parse_channel(self, data: dict[str, Any]) -> Channel:
@@ -869,7 +903,7 @@ class Bot(Router):
             default_thread_rate_limit_per_user=data.get("default_thread_rate_limit_per_user"),
             default_sort_order=data.get("default_sort_order"),
             default_forum_layout=data.get("default_forum_layout"),
-            raw_data=dict(data),
+            raw_data=self._raw(data),
         )
 
     def _parse_message(self, data: dict[str, Any]) -> Message:
@@ -950,7 +984,7 @@ class Bot(Router):
             shared_client_theme=data.get("shared_client_theme"),
             guild=guild,
             member=data.get("member", {}),
-            raw_data=dict(data),
+            raw_data=self._raw(data),
             bot=self,
         )
 
@@ -959,7 +993,7 @@ class Bot(Router):
         return MessagePin(
             pinned_at=pinned_at,
             message=self._parse_message(data["message"]),
-            raw_data=dict(data),
+            raw_data=self._raw(data),
         )
 
     async def _receive_messages(self) -> None:
