@@ -49,6 +49,23 @@ func (d *Dispatcher) Include(routers ...*Router) {
 	for _, router := range d.routers {
 		d.routes = append(d.routes, router.routesWithMiddleware(nil)...)
 	}
+	for index := range d.routes {
+		d.routes[index].wrapped = composeMiddleware(d.routes[index].handler, d.routes[index].middlewares)
+	}
+}
+
+// composeMiddleware folds the middleware stack around the handler once. The
+// result is identical to the per-dispatch loop that used to live in Dispatch
+// but it pays the closure-allocation cost a single time instead of per event.
+func composeMiddleware(handler Handler, middlewares []Middleware) Handler {
+	for index := len(middlewares) - 1; index >= 0; index-- {
+		middleware := middlewares[index]
+		next := handler
+		handler = func(ctx context.Context, event Event) error {
+			return middleware(ctx, event, next)
+		}
+	}
+	return handler
 }
 
 func (d *Dispatcher) Dispatch(ctx context.Context, event Event) error {
@@ -59,13 +76,11 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event Event) error {
 		if item.meta.Type != event.Type || !filtersPass(event, item.filters) {
 			continue
 		}
-		handler := item.handler
-		for index := len(item.middlewares) - 1; index >= 0; index-- {
-			middleware := item.middlewares[index]
-			next := handler
-			handler = func(ctx context.Context, event Event) error {
-				return middleware(ctx, event, next)
-			}
+		handler := item.wrapped
+		if handler == nil {
+			// Fallback for routes that bypassed Dispatcher.Include (e.g.
+			// Router.DispatchMessage internal wiring).
+			handler = composeMiddleware(item.handler, item.middlewares)
 		}
 		if err := callHandler(ctx, handler, event); err != nil {
 			d.errorHandler(ctx, item.meta, err)
