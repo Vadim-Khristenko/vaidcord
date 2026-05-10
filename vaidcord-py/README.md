@@ -2,7 +2,7 @@
 
 VaidCord is a Python Discord SDK built around a small set of composable pieces: Bot, Dispatcher, Router, filters, middleware, and FSM.
 
-Current package status: **Beta** (`0.1.0b3`).
+Current package status: **Beta** (`0.1.0b4`).
 
 ## Why it exists
 
