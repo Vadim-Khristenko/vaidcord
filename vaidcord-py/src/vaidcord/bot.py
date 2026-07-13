@@ -127,6 +127,12 @@ class BotConfig:
     because the parser receives a fresh ``json.loads()`` dict that is not
     mutated anywhere else in the framework.
     """
+    compress: bool = False
+    """Enable zlib-stream transport compression on the gateway websocket.
+
+    Reduces inbound gateway bandwidth substantially for large bots. The
+    payloads are transparently decompressed before dispatch.
+    """
 
 
 class Bot(Router):
@@ -353,6 +359,43 @@ class Bot(Router):
             self_deaf=self_deaf,
             config=config,
             wait_timeout=wait_timeout,
+        )
+
+    async def update_presence(
+        self,
+        *,
+        status: str = "online",
+        activities: list[dict[str, Any]] | None = None,
+        afk: bool = False,
+        since: int | None = None,
+    ) -> None:
+        """Update the bot's presence/status (gateway opcode 3)."""
+        await self.runtime.update_presence(
+            status=status, activities=activities, afk=afk, since=since
+        )
+
+    async def request_guild_members(
+        self,
+        guild_id: int,
+        *,
+        query: str = "",
+        limit: int = 0,
+        presences: bool = False,
+        user_ids: list[int] | None = None,
+        nonce: str | None = None,
+    ) -> None:
+        """Request guild members over the gateway (opcode 8).
+
+        Requires the ``GUILD_MEMBERS`` privileged intent for a full member
+        list; results arrive as ``GUILD_MEMBERS_CHUNK`` events.
+        """
+        await self.runtime.request_guild_members(
+            guild_id,
+            query=query,
+            limit=limit,
+            presences=presences,
+            user_ids=user_ids,
+            nonce=nonce,
         )
 
     def _raw(self, data: dict[str, Any]) -> dict[str, Any]:
