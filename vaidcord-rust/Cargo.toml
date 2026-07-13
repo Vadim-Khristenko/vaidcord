@@ -1,8 +1,8 @@
 [package]
 name = "vaidcord"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
-description = "Early Rust SDK scaffold for VaidCord"
+description = "High-performance Discord framework: routers, middleware, resilient gateway and full voice transport"
 license = "MIT"
 repository = "https://github.com/Vadim-Khristenko/vaidcord"
 
@@ -11,7 +11,7 @@ name = "vaidcord"
 path = "src/lib.rs"
 
 [dependencies]
-vaidcord-macros = { version = "0.1.0", path = "macros" }
+vaidcord-macros = { version = "0.2.0", path = "macros" }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }

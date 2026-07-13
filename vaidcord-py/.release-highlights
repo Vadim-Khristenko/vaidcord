@@ -1,0 +1,6 @@
+Complete voice protocol — bots join, play (files & live streams) and listen
+Full Discord API v10 REST coverage: 89 new methods, file uploads, 26 typed models
+Gateway: RESUME, zlib-stream compression, presence & guild-members ops
+Mock Discord with a real websocket gateway, rate-limit & chaos simulation
+Bundled ctypes libopus binding — no third-party Opus wrapper needed
+Per-user voice recording with WaveSink and SSRC demultiplexing

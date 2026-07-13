@@ -1,5 +1,11 @@
 # VaidCord Community SDK
 
+[![CI](https://github.com/Vadim-Khristenko/vaidcord/actions/workflows/ci.yml/badge.svg)](https://github.com/Vadim-Khristenko/vaidcord/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/vaidcord?label=PyPI&color=3775A9)](https://pypi.org/project/vaidcord/)
+[![crates.io](https://img.shields.io/crates/v/vaidcord?label=crates.io&color=E6803E)](https://crates.io/crates/vaidcord)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Vadim-Khristenko/vaidcord/vaidcord-go.svg)](https://pkg.go.dev/github.com/Vadim-Khristenko/vaidcord/vaidcord-go)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 VaidCord is a community-driven Discord SDK initiative designed to provide a clean, modern developer experience across multiple languages.
 
 ## Repository layout

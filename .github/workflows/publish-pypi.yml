@@ -20,16 +20,51 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    name: Test vaidcord-py before release
+    runs-on: ubuntu-latest
+    outputs:
+      passed: ${{ steps.pytest.outputs.passed }}
+    defaults:
+      run:
+        working-directory: vaidcord-py
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install media libraries (ffmpeg, libopus)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends ffmpeg libopus0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --extra dev --extra voice
+
+      - name: Lint (ruff)
+        run: uv run ruff check src tests
+
+      - name: Tests (pytest)
+        id: pytest
+        run: |
+          uv run python -m pytest -q | tee pytest.log
+          PASSED=$(grep -Eo '[0-9]+ passed' pytest.log | tail -1 | grep -Eo '[0-9]+' || echo 0)
+          echo "passed=${PASSED}" >> "$GITHUB_OUTPUT"
+
   publish:
     name: Build, release and publish vaidcord-py
     runs-on: ubuntu-latest
+    needs: test
 
     environment:
       name: pypi
       url: https://pypi.org/p/vaidcord/ # Notice vaidcord-py is published as "vaidcord" on PyPI
 
     permissions:
-      contents: write      # create/update GitHub Release
+      contents: write      # create/update GitHub Release + push release card
       id-token: write      # PyPI Trusted Publishing / OIDC
 
     defaults:
@@ -77,7 +112,7 @@ jobs:
                   f"Use one of: {', '.join(sorted(accepted))}"
               )
 
-          prerelease = bool(re.search(r"(a|b|rc|dev)", version))
+          prerelease = bool(re.search(r"(a|b|rc|dev)\d*$", version))
 
           def out(name: str, value: str) -> None:
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
@@ -102,48 +137,67 @@ jobs:
         run: |
           python -m twine check dist/*
 
-      - name: Generate release notes
+      - name: Generate release card
+        working-directory: .
         run: |
-          TAG="${{ steps.meta.outputs.tag }}"
-          VERSION="${{ steps.meta.outputs.version }}"
-
-          PREVIOUS_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
-          if [ -n "$PREVIOUS_TAG" ]; then
-            RANGE="$PREVIOUS_TAG..HEAD"
-            COMPARE_TEXT="Changes since \`$PREVIOUS_TAG\`."
-          else
-            RANGE="HEAD"
-            COMPARE_TEXT="Initial release notes generated from available commit history."
+          PREV=$(git describe --tags --abbrev=0 '${{ steps.meta.outputs.tag }}^' 2>/dev/null || echo "")
+          RANGE="${{ steps.meta.outputs.tag }}"
+          [ -n "$PREV" ] && RANGE="${PREV}..${{ steps.meta.outputs.tag }}"
+          COMMITS=$(git log --no-merges --oneline "$RANGE" -- vaidcord-py | wc -l | tr -d ' ')
+          ARGS=()
+          if [ -f vaidcord-py/.release-highlights ]; then
+            while IFS= read -r line && [ "${#ARGS[@]}" -lt 8 ]; do
+              [ -n "$line" ] && ARGS+=(--highlight "$line")
+            done < vaidcord-py/.release-highlights
           fi
+          python .github/scripts/release_card.py \
+            --package vaidcord --version "${{ steps.meta.outputs.version }}" \
+            --language Python --tag "${{ steps.meta.outputs.tag }}" \
+            --stat "${{ needs.test.outputs.passed }}=tests passing" \
+            --stat "${COMMITS}=commits in release" \
+            --stat "3=cipher modes" \
+            --stat "v10=API coverage" \
+            "${ARGS[@]}" \
+            --out release-card.svg
 
-          {
-            echo "# VAIDCORD-PY ${VERSION}"
-            echo
-            echo "${COMPARE_TEXT}"
-            echo
-            echo "## Commits"
-            echo
-            git log --no-merges --pretty=format:'- %s (`%h`) — %an' "$RANGE"
-            echo
-            echo
-            echo "## Distribution files"
-            echo
-            for file in dist/*; do
-              echo "- \`$(basename "$file")\`"
-            done
-          } > ../release-notes.md
+      - name: Publish release card
+        id: card
+        working-directory: .
+        run: bash .github/scripts/publish_card.sh release-card.svg "${{ steps.meta.outputs.tag }}"
+
+      - name: Generate release notes
+        working-directory: .
+        run: |
+          ARGS=()
+          if [ -f vaidcord-py/.release-highlights ]; then
+            while IFS= read -r line; do
+              [ -n "$line" ] && ARGS+=(--highlight "$line")
+            done < vaidcord-py/.release-highlights
+          fi
+          python .github/scripts/release_notes.py \
+            --package vaidcord --version "${{ steps.meta.outputs.version }}" \
+            --tag "${{ steps.meta.outputs.tag }}" --language python \
+            --tag-pattern "v*" --tag-pattern "py-v*" --path vaidcord-py --path UNITED.md \
+            --card-url "${{ steps.card.outputs.card-url }}" \
+            "${ARGS[@]}" \
+            --out release-notes.md
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          target_commitish: ${{ github.sha }}
-          name: VAIDCORD-PY ${{ steps.meta.outputs.version }}
-          body_path: release-notes.md
-          generate_release_notes: true
-          prerelease: ${{ steps.meta.outputs.prerelease }}
-          files: vaidcord-py/dist/*
-          fail_on_unmatched_files: true
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          FLAGS=()
+          [ "${{ steps.meta.outputs.prerelease }}" = "true" ] && FLAGS+=(--prerelease)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "VAIDCORD-PY ${{ steps.meta.outputs.version }}" --notes-file release-notes.md "${FLAGS[@]}"
+            gh release upload "$TAG" vaidcord-py/dist/* release-card.svg --clobber
+          else
+            gh release create "$TAG" vaidcord-py/dist/* release-card.svg \
+              --title "VAIDCORD-PY ${{ steps.meta.outputs.version }}" \
+              --notes-file release-notes.md --verify-tag "${FLAGS[@]}"
+          fi
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
