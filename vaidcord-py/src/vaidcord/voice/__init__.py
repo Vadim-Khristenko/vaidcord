@@ -10,7 +10,20 @@ from .audio import (
     iter_opus_frames,
     iter_pcm_s16le_frames,
 )
-from .connection import VoiceConnection, VoiceManager
+from .connection import (
+    FATAL_VOICE_CLOSE_CODES,
+    REJOIN_VOICE_CLOSE_CODES,
+    VoiceCloseAction,
+    VoiceConnection,
+    VoiceManager,
+    classify_voice_close_code,
+)
+from .crypto import (
+    VoiceBox,
+    VoiceDecryptionError,
+    create_voice_box,
+    supported_encryption_modes,
+)
 from .dave import (
     DaveBackendError,
     DaveCommit,
@@ -39,6 +52,25 @@ from .models import (
     VoiceSpeakingFlag,
     VoiceState,
 )
+from .player import AudioPlayer
+from .receive import (
+    AudioSink,
+    BufferSink,
+    CallbackSink,
+    VoiceFrame,
+    VoiceReceiver,
+    WaveSink,
+)
+from .rtp import RTPPacket, is_rtcp_packet, parse_rtp_packet
+from .sources import (
+    AudioSource,
+    FFmpegOpusAudio,
+    FFmpegPCMAudio,
+    OpusFrameSource,
+    PCMAudio,
+    PCMVolumeTransformer,
+    SilenceSource,
+)
 from .udp import (
     VoiceDatagram,
     VoiceUDPClient,
@@ -47,7 +79,32 @@ from .udp import (
 )
 
 __all__ = [
+    "AudioPlayer",
+    "AudioSink",
+    "AudioSource",
+    "BufferSink",
+    "CallbackSink",
+    "FATAL_VOICE_CLOSE_CODES",
+    "FFmpegOpusAudio",
+    "FFmpegPCMAudio",
+    "OpusFrameSource",
+    "PCMAudio",
+    "PCMVolumeTransformer",
+    "REJOIN_VOICE_CLOSE_CODES",
+    "RTPPacket",
+    "SilenceSource",
+    "VoiceBox",
+    "VoiceCloseAction",
     "VoiceConnection",
+    "VoiceDecryptionError",
+    "VoiceFrame",
+    "VoiceReceiver",
+    "WaveSink",
+    "classify_voice_close_code",
+    "create_voice_box",
+    "is_rtcp_packet",
+    "parse_rtp_packet",
+    "supported_encryption_modes",
     "VoiceEncryptionMode",
     "VoiceGatewayConfig",
     "VoiceManager",
