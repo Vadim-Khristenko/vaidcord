@@ -41,6 +41,9 @@ dev = [
     "wemake-python-styleguide>=0.19.2",
     "flake8>=7.1.1",
     "mypy>=1.11.2",
+    # Voice/DAVE test suites exercise the crypto stack directly.
+    "PyNaCl>=1.5.0",
+    "cryptography>=42.0.0",
 ]
 mongo = [
     "pymongo>=4.9.0",
