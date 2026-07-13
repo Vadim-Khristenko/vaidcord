@@ -50,6 +50,48 @@ async def test_api_client_resource_helpers_build_expected_routes(
 
 
 @pytest.mark.asyncio
+async def test_api_client_v10_parity_helpers_build_expected_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = APIClient("token")
+    calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    async def fake_request(method: str, endpoint: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append((method, endpoint, kwargs))
+        return {"ok": True}
+
+    monkeypatch.setattr(client, "request", fake_request)
+
+    await client.get_guild_emoji(9, 1)
+    await client.list_sticker_packs()
+    await client.list_auto_moderation_rules(9)
+    await client.get_stage_instance(1)
+    await client.consume_entitlement(5, 11)
+    await client.send_soundboard_sound(1, 4)
+    await client.get_guild_vanity_url(9)
+    await client.add_guild_member_role(9, 8, 7, reason="promote")
+    await client.get_current_application()
+    await client.list_voice_regions()
+
+    assert calls == [
+        ("GET", "/guilds/9/emojis/1", {}),
+        ("GET", "/sticker-packs", {}),
+        ("GET", "/guilds/9/auto-moderation/rules", {}),
+        ("GET", "/stage-instances/1", {}),
+        ("POST", "/applications/5/entitlements/11/consume", {}),
+        ("POST", "/channels/1/send-soundboard-sound", {"json": {"sound_id": "4"}}),
+        ("GET", "/guilds/9/vanity-url", {}),
+        (
+            "PUT",
+            "/guilds/9/members/8/roles/7",
+            {"headers": {"X-Audit-Log-Reason": "promote"}},
+        ),
+        ("GET", "/applications/@me", {}),
+        ("GET", "/voice/regions", {}),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_bot_resource_wrappers_delegate_to_api_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
