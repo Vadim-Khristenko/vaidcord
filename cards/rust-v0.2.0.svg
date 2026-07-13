@@ -1,0 +1,99 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630"
+     xmlns="http://www.w3.org/2000/svg" role="img"
+     aria-label="VAIDCORD 0.2.0 release card">
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="0.85" cy="0.05" r="0.9">
+      <stop offset="0%" stop-color="#f43f5e" stop-opacity="0.28"/>
+      <stop offset="55%" stop-color="#f43f5e" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#f43f5e" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="0.08" cy="0.95" r="0.8">
+      <stop offset="0%" stop-color="#fb923c" stop-opacity="0.22"/>
+      <stop offset="60%" stop-color="#fb923c" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#fb923c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0b0e17"/>
+      <stop offset="100%" stop-color="#080b12"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glowA)"/>
+  <rect width="1200" height="630" fill="url(#glowB)"/>
+  <circle cx="80" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="168" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="256" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="344" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="432" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="520" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="608" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="696" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="784" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="872" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="960" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1048" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1136" cy="120" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="80" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="168" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="256" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="344" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="432" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="520" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="608" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="696" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="784" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="872" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="960" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1048" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1136" cy="192" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="80" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="168" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="256" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="344" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="432" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="520" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="608" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="696" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="784" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="872" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="960" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1048" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1136" cy="264" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="80" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="168" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="256" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="344" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="432" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="520" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="608" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="696" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="784" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="872" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="960" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1048" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1136" cy="336" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="80" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="168" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="256" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="344" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="432" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="520" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="608" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="696" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="784" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="872" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="960" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1048" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1136" cy="408" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="80" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="168" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="256" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="344" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="432" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="520" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="608" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="696" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="784" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="872" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="960" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1048" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1136" cy="480" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="80" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="168" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="256" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="344" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="432" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="520" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="608" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="696" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="784" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="872" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="960" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1048" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/><circle cx="1136" cy="552" r="1.6" fill="#ffffff" opacity="0.05"/>
+  <rect x="0" y="0" width="1200" height="8" fill="url(#accent)"/>
+
+  <text x="72" y="112" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="26" font-weight="600"
+        fill="#e2e8f0" letter-spacing="6">VAIDCORD</text>
+  <rect x="72" y="136" width="150" height="38" rx="19"
+        fill="#ffffff" fill-opacity="0.06" stroke="url(#accent)" stroke-opacity="0.8"/>
+  <text x="147" y="162" text-anchor="middle" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="19"
+        font-weight="600" fill="url(#accent)">Rust</text>
+
+  <text x="66" y="308" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="150" font-weight="800"
+        fill="url(#accent)">v0.2.0</text>
+  <text x="74" y="360" font-family="'Cascadia Code', 'JetBrains Mono', 'Fira Code', Consolas, monospace" font-size="21" fill="#64748b">rust-v0.2.0 · 2026-07-13</text>
+
+  <text x="72" y="412" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="700"
+        fill="#94a3b8" letter-spacing="3">WHAT'S INSIDE</text>
+  
+  <g>
+    <circle cx="76" cy="446" r="4" fill="url(#accent)"/>
+    <text x="94" y="452" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="20" fill="#cbd5e1">Middleware + standalone Dispatcher with precomposed chains (O(1) hot path)</text>
+  </g>
+  <g>
+    <circle cx="76" cy="482" r="4" fill="url(#accent)"/>
+    <text x="94" y="488" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="20" fill="#cbd5e1">Resilient gateway: RESUME, backoff, close-code policy, typed Intents</text>
+  </g>
+  <g>
+    <circle cx="76" cy="518" r="4" fill="url(#accent)"/>
+    <text x="94" y="524" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="20" fill="#cbd5e1">Voice transport wire-compatible with vaidcord-py (all 3 cipher modes)</text>
+  </g>
+  <g>
+    <circle cx="76" cy="554" r="4" fill="url(#accent)"/>
+    <text x="94" y="560" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="20" fill="#cbd5e1">Rate-limited, retrying REST client with the common endpoint set</text>
+  </g>
+  
+  <g>
+    <rect x="640" y="172" width="236" height="118" rx="18"
+          fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    <text x="664" y="224" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="40"
+          font-weight="700" fill="url(#accent)">99</text>
+    <text x="664" y="258" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="17"
+          fill="#94a3b8" letter-spacing="1.5">TESTS PASSING</text>
+  </g>
+  <g>
+    <rect x="896" y="172" width="236" height="118" rx="18"
+          fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    <text x="920" y="224" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="40"
+          font-weight="700" fill="url(#accent)">13</text>
+    <text x="920" y="258" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="17"
+          fill="#94a3b8" letter-spacing="1.5">COMMITS IN RELEASE</text>
+  </g>
+  <g>
+    <rect x="640" y="310" width="236" height="118" rx="18"
+          fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    <text x="664" y="362" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="40"
+          font-weight="700" fill="url(#accent)">3</text>
+    <text x="664" y="396" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="17"
+          fill="#94a3b8" letter-spacing="1.5">CIPHER MODES</text>
+  </g>
+  <g>
+    <rect x="896" y="310" width="236" height="118" rx="18"
+          fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.10"/>
+    <text x="920" y="362" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="40"
+          font-weight="700" fill="url(#accent)">0</text>
+    <text x="920" y="396" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="17"
+          fill="#94a3b8" letter-spacing="1.5">CLIPPY WARNINGS</text>
+  </g>
+
+  <line x1="72" y1="576" x2="1128" y2="576" stroke="#ffffff" stroke-opacity="0.08"/>
+  <text x="72" y="606" font-family="'Cascadia Code', 'JetBrains Mono', 'Fira Code', Consolas, monospace" font-size="17" fill="#64748b">Vadim-Khristenko/vaidcord</text>
+  <text x="1128" y="606" text-anchor="end" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="17"
+        font-weight="600" fill="url(#accent)">RELEASE</text>
+</svg>
