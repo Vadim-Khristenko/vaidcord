@@ -1,11 +1,33 @@
+//! Handler registry with filters, middleware and nesting.
+//!
+//! A [`Router`] owns routes (handler + filters), router-level middleware and
+//! child routers. Routers are composed into a [`Dispatcher`](crate::Dispatcher)
+//! which precomputes each route's middleware chain at include-time so the
+//! dispatch hot path is O(1) in allocations (UNITED.md §7).
+
+use std::sync::Arc;
+
 use crate::error::Error;
+use crate::events::{Event, EventKind};
 use crate::extract::ExtractBag;
 use crate::filters::{FilterOutcome, MessageFilter};
-use crate::models::Message;
+use crate::middleware::Middleware;
+use crate::models::{Interaction, Message, Ready};
 
+/// Result type returned by every handler and middleware.
 pub type HandlerResult = Result<(), Error>;
+
+/// Boxed message handler used by [`MessageHandlerDef`].
 pub type MessageHandler = Box<dyn Fn(&Message, &ExtractBag) -> HandlerResult + Send + Sync>;
 
+pub(crate) type SharedMessageFilter =
+    Arc<dyn Fn(&Message, &ExtractBag) -> Result<FilterOutcome, Error> + Send + Sync>;
+pub(crate) type SharedEventHandler =
+    Arc<dyn Fn(&Event, &ExtractBag) -> HandlerResult + Send + Sync>;
+type SharedMessageHandler = Arc<dyn Fn(&Message, &ExtractBag) -> HandlerResult + Send + Sync>;
+
+/// A named message-handler definition, typically produced by the
+/// `#[vaidcord::on_message]` proc-macro.
 pub struct MessageHandlerDef {
     name: &'static str,
     filters: Vec<MessageFilter>,
@@ -29,22 +51,73 @@ impl MessageHandlerDef {
     }
 }
 
-pub struct Router {
-    message_routes: Vec<MessageRoute>,
+/// One registered route: event kind + filters + handler.
+pub(crate) struct Route {
+    pub(crate) kind: EventKind,
+    pub(crate) filters: Vec<SharedMessageFilter>,
+    pub(crate) handler: SharedEventHandler,
 }
 
-struct MessageRoute {
-    filters: Vec<MessageFilter>,
-    handler: MessageHandler,
+/// A route flattened out of a router tree together with the middleware chain
+/// (outermost first) that must wrap its handler.
+pub(crate) struct CollectedRoute {
+    pub(crate) kind: EventKind,
+    pub(crate) filters: Vec<SharedMessageFilter>,
+    pub(crate) middlewares: Vec<Middleware>,
+    pub(crate) handler: SharedEventHandler,
+}
+
+/// Handler registry + filter pipeline with middleware and nesting.
+#[derive(Default)]
+pub struct Router {
+    name: &'static str,
+    routes: Vec<Route>,
+    children: Vec<Router>,
+    middlewares: Vec<Middleware>,
 }
 
 impl Router {
+    /// Create an empty router.
     pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create an empty router with a diagnostic name.
+    pub fn named(name: &'static str) -> Self {
         Self {
-            message_routes: Vec::new(),
+            name,
+            ..Self::default()
         }
     }
 
+    /// The router's diagnostic name (empty if unnamed).
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Attach a middleware to this router.
+    ///
+    /// The middleware wraps every route registered on this router *and* on
+    /// any router later nested via [`Router::include`]. Middleware added on a
+    /// parent runs outside middleware added on a child; the innermost
+    /// middleware wraps the handler itself.
+    pub fn use_middleware<F>(&mut self, middleware: F)
+    where
+        F: for<'a> Fn(&Event, &ExtractBag, crate::middleware::Next<'a>) -> HandlerResult
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.middlewares.push(Arc::new(middleware));
+    }
+
+    /// Nest a child router. The child keeps its own filters and middleware;
+    /// this router's middleware wraps around them.
+    pub fn include(&mut self, child: Router) {
+        self.children.push(child);
+    }
+
+    /// Register a handler for every `MESSAGE_CREATE` event.
     pub fn on_message<F>(&mut self, handler: F)
     where
         F: Fn(&Message) -> HandlerResult + Send + Sync + 'static,
@@ -52,56 +125,104 @@ impl Router {
         self.on_message_filtered(handler, Vec::new());
     }
 
+    /// Register a `MESSAGE_CREATE` handler guarded by filters (AND'd).
     pub fn on_message_filtered<F>(&mut self, handler: F, filters: Vec<MessageFilter>)
     where
         F: Fn(&Message) -> HandlerResult + Send + Sync + 'static,
     {
-        self.message_routes.push(MessageRoute {
+        self.push_message_route(
             filters,
-            handler: Box::new(move |message, _bag| handler(message)),
-        });
+            Box::new(move |message, _bag| handler(message)),
+        );
     }
 
+    /// Register a handler definition produced by `#[vaidcord::on_message]`.
     pub fn add_message_handler(&mut self, definition: MessageHandlerDef) {
-        self.message_routes.push(MessageRoute {
-            filters: definition.filters,
-            handler: definition.handler,
+        self.push_message_route(definition.filters, definition.handler);
+    }
+
+    fn push_message_route(&mut self, filters: Vec<MessageFilter>, handler: MessageHandler) {
+        let handler: SharedMessageHandler = Arc::from(handler);
+        self.routes.push(Route {
+            kind: EventKind::MessageCreate,
+            filters: filters.into_iter().map(SharedMessageFilter::from).collect(),
+            handler: Arc::new(move |event: &Event, bag: &ExtractBag| match event.message() {
+                Some(message) => handler(message, bag),
+                None => Ok(()),
+            }),
         });
     }
 
-    pub fn dispatch_message(&self, message: &Message) -> HandlerResult {
-        // Reuse a single empty bag for unfiltered handlers to avoid the
-        // per-route HashMap allocation that ExtractBag::new() incurs. Routes
-        // that *do* have filters still get a private bag because filters can
-        // contribute extracted values via FilterOutcome::Pass.
-        let empty_bag = ExtractBag::new();
-        for route in &self.message_routes {
-            if route.filters.is_empty() {
-                (route.handler)(message, &empty_bag)?;
-                continue;
-            }
-            let mut bag = ExtractBag::new();
-            let mut rejected = false;
-            for filter in &route.filters {
-                match filter(message, &bag)? {
-                    FilterOutcome::Pass(extracted) => bag.merge(extracted),
-                    FilterOutcome::Reject => {
-                        rejected = true;
-                        break;
-                    }
-                }
-            }
-            if !rejected {
-                (route.handler)(message, &bag)?;
-            }
-        }
-        Ok(())
+    /// Register a handler for an arbitrary event kind.
+    pub fn on_event<F>(&mut self, kind: EventKind, handler: F)
+    where
+        F: Fn(&Event) -> HandlerResult + Send + Sync + 'static,
+    {
+        self.routes.push(Route {
+            kind,
+            filters: Vec::new(),
+            handler: Arc::new(move |event: &Event, _bag: &ExtractBag| handler(event)),
+        });
     }
-}
 
-impl Default for Router {
-    fn default() -> Self {
-        Self::new()
+    /// Register a handler for the gateway `READY` event.
+    pub fn on_ready<F>(&mut self, handler: F)
+    where
+        F: Fn(&Ready) -> HandlerResult + Send + Sync + 'static,
+    {
+        self.on_event(EventKind::Ready, move |event| match event {
+            Event::Ready(ready) => handler(ready),
+            _ => Ok(()),
+        });
+    }
+
+    /// Register a handler for `INTERACTION_CREATE` events.
+    pub fn on_interaction<F>(&mut self, handler: F)
+    where
+        F: Fn(&Interaction) -> HandlerResult + Send + Sync + 'static,
+    {
+        self.on_event(EventKind::InteractionCreate, move |event| match event {
+            Event::InteractionCreate(interaction) => handler(interaction.as_ref()),
+            _ => Ok(()),
+        });
+    }
+
+    /// Flatten this router tree into routes carrying their full middleware
+    /// chain (`parent` middleware outermost, then this router's, then any
+    /// child's). Shared handlers/filters are reference-counted so the router
+    /// remains usable afterwards.
+    pub(crate) fn collect_routes(&self, parent: &[Middleware]) -> Vec<CollectedRoute> {
+        let chain: Vec<Middleware> = parent
+            .iter()
+            .cloned()
+            .chain(self.middlewares.iter().cloned())
+            .collect();
+        let mut out = Vec::with_capacity(self.routes.len());
+        for route in &self.routes {
+            out.push(CollectedRoute {
+                kind: route.kind,
+                filters: route.filters.clone(),
+                middlewares: chain.clone(),
+                handler: Arc::clone(&route.handler),
+            });
+        }
+        for child in &self.children {
+            out.extend(child.collect_routes(&chain));
+        }
+        out
+    }
+
+    /// Dispatch a message through this router tree (filters + middleware).
+    ///
+    /// Convenience wrapper that builds a one-shot [`Dispatcher`]; for the hot
+    /// path build a `Dispatcher` once and reuse it so middleware chains stay
+    /// precomposed.
+    ///
+    /// [`Dispatcher`]: crate::Dispatcher
+    pub fn dispatch_message(&self, message: &Message) -> HandlerResult {
+        let mut dispatcher = crate::dispatcher::Dispatcher::new();
+        dispatcher.include(self);
+        dispatcher.dispatch(&Event::MessageCreate(message.clone()))
     }
 }
 
@@ -330,5 +451,40 @@ mod tests {
         router.dispatch_message(&message("plain")).unwrap();
         router.dispatch_message(&message("!echo hello")).unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn nested_router_middleware_wraps_child_routes() {
+        let log: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let mut child = Router::named("child");
+        let child_log = Arc::clone(&log);
+        child.use_middleware(move |event, bag, next| {
+            child_log.lock().unwrap().push("child:in".into());
+            let result = next.run(event, bag);
+            child_log.lock().unwrap().push("child:out".into());
+            result
+        });
+        let handler_log = Arc::clone(&log);
+        child.on_message(move |_message| {
+            handler_log.lock().unwrap().push("handler".into());
+            Ok(())
+        });
+
+        let mut parent = Router::named("parent");
+        let parent_log = Arc::clone(&log);
+        parent.use_middleware(move |event, bag, next| {
+            parent_log.lock().unwrap().push("parent:in".into());
+            let result = next.run(event, bag);
+            parent_log.lock().unwrap().push("parent:out".into());
+            result
+        });
+        parent.include(child);
+
+        parent.dispatch_message(&message("hi")).unwrap();
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec!["parent:in", "child:in", "handler", "child:out", "parent:out"]
+        );
     }
 }
