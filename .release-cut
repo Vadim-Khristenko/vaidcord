@@ -1,0 +1,4 @@
+# One release per line: <workflow file> <tag>
+publish-pypi.yml py-v0.2.0
+release-rust.yml rust-v0.2.0
+release-go.yml vaidcord-go/v0.2.0
