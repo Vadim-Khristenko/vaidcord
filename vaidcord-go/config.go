@@ -5,6 +5,8 @@ type Config struct {
 	APIVersion string
 	BaseURL    string
 	ProxyURL   string
+	// MaxRetries bounds retries after 429/5xx/network failures (default 3).
+	MaxRetries int
 }
 
 func (c Config) WithDefaults() Config {
@@ -13,6 +15,9 @@ func (c Config) WithDefaults() Config {
 	}
 	if c.BaseURL == "" {
 		c.BaseURL = "https://discord.com/api"
+	}
+	if c.MaxRetries <= 0 {
+		c.MaxRetries = 3
 	}
 	return c
 }
