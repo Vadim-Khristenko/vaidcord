@@ -1,3 +1,6 @@
+//! Voice gateway opcode/close-code constants and the DAVE identify
+//! configuration carrier (shared numeric contract across the three SDKs).
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum VoiceGatewayOpcode {

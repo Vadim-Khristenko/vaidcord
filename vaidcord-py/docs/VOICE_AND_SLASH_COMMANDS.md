@@ -10,17 +10,33 @@ This guide covers:
 
 ## Voice API: what is implemented
 
-VaidCord now includes a practical voice connection layer:
+VaidCord includes a complete voice protocol implementation:
 
 - voice join coordination (`VOICE_STATE_UPDATE` + `VOICE_SERVER_UPDATE`)
-- voice websocket identify/resume
-- UDP IP discovery
-- protocol selection
-- speaking state control
-- RTP packet builder
-- frame streaming helpers
+- voice websocket identify/resume, plus a persistent reader task with an
+  automatic reconnect policy driven by close codes
+  (`classify_voice_close_code`: resume / rejoin / fatal)
+- voice server failover: a mid-session `VOICE_SERVER_UPDATE` migrates the
+  live connection to the new endpoint automatically
+- UDP IP discovery and protocol selection
+- transport encryption for **all** Discord `_rtpsize` modes, both directions
+  (`aead_aes256_gcm_rtpsize`, `aead_xchacha20_poly1305_rtpsize`,
+  `xsalsa20_poly1305_lite_rtpsize`) via `vaidcord.voice.crypto`
+- a bundled ctypes binding to **libopus** (`vaidcord.voice.opus`) — no
+  third-party Opus wrapper needed for encode *or* decode
+- **playback**: `connection.play(source)` with `AudioPlayer`
+  (drift-corrected 20 ms pacing, pause/resume/stop, after-callbacks) and
+  audio sources: `FFmpegPCMAudio` (any file/URL/pipe), `FFmpegOpusAudio`
+  (zero re-encode Ogg/Opus demux), `PCMAudio`, `OpusFrameSource`,
+  `PCMVolumeTransformer`, `SilenceSource`
+- **receive/listen**: `connection.listen(sink)` decrypts inbound RTP,
+  decodes Opus per speaker, and demultiplexes by SSRC→user mapping fed by
+  speaking events; sinks include `WaveSink` (per-user .wav files),
+  `BufferSink`, `CallbackSink`, or your own `AudioSink`
+- speaking state control and `on_speaking` callbacks
 - dependency diagnostics for audio/encryption backends
 - DAVE/E2EE controller integration with pluggable crypto backend hooks
+  (frames are DAVE-decrypted on receive when a backend is active)
 
 Voice gateway version:
 
@@ -28,13 +44,29 @@ Voice gateway version:
 
 Main types:
 
-- `VoiceManager`
-- `VoiceConnection`
-- `VoiceUDPClient`
-- `VoiceGatewayConfig`
-- `AudioBackendStatus`
-- `DaveProtocolController`
-- `DaveCryptoBackend`
+- `VoiceManager` (tracks live connections; `get()`, `disconnect()`)
+- `VoiceConnection` (`play`, `listen`, `pause`, `stop`, `disconnect`, `latency`)
+- `AudioPlayer`, `AudioSource`, `AudioSink`, `VoiceReceiver`, `VoiceFrame`
+- `VoiceUDPClient`, `VoiceGatewayConfig`, `AudioBackendStatus`
+- `DaveProtocolController`, `DaveCryptoBackend`
+
+### Quick start: play a file and record the channel
+
+```python
+from vaidcord.voice import FFmpegPCMAudio, WaveSink
+
+connection = await bot.join_voice_channel(GUILD_ID, CHANNEL_ID)
+
+# Play any format ffmpeg understands (file, URL, or pipe).
+player = connection.play(FFmpegPCMAudio("song.mp3"))
+await player.wait()
+
+# Record every speaker into per-user .wav files.
+connection.listen(WaveSink("./recordings"))
+...
+await connection.stop_listening()
+await connection.disconnect()
+```
 
 ## Voice connection flow
 
@@ -231,4 +263,15 @@ Available builders cover message layout/content components (`container`, `sectio
 
 ## Current limits (important)
 
-Current voice helpers provide handshake, RTP transport, file decoding, Opus encoding, AEAD transport encryption, and a DAVE controller that can drive a configured `DaveCryptoBackend`. Channels that require Discord DAVE/E2EE still need a production MLS/libdave-compatible backend implementation; without one, VaidCord detects the DAVE path and fails fast with actionable diagnostics instead of silently closing.
+The voice stack now covers the full send **and** receive path: handshake,
+RTP transport, Opus encode/decode (bundled libopus binding), all `_rtpsize`
+transport encryption modes in both directions, drift-corrected playback,
+per-user recording, reconnect/resume/failover, and a DAVE controller that
+can drive a configured `DaveCryptoBackend`. Channels that require Discord
+DAVE/E2EE still need a production MLS/libdave-compatible backend
+implementation; without one, VaidCord detects the DAVE path and fails fast
+with actionable diagnostics instead of silently closing.
+
+System requirements for media: `libopus` (`apt install libopus0`) and
+`ffmpeg` in `PATH` for file/URL sources; `pip install 'vaidcord[voice]'`
+for the encryption extras.

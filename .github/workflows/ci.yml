@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (pytest + ruff)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vaidcord-py
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install media libraries (ffmpeg, libopus)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends ffmpeg libopus0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --extra dev --extra voice
+
+      - name: Lint (ruff)
+        run: uv run ruff check src tests
+
+      - name: Tests (pytest)
+        run: uv run python -m pytest -q
+
+  rust:
+    name: Rust (cargo test + clippy)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vaidcord-rust
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install libopus
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends libopus-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: vaidcord-rust
+
+      - name: Tests (default features)
+        run: cargo test
+
+      - name: Tests (opus feature)
+        run: cargo test --features opus
+
+      - name: Clippy
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo clippy --all-targets --features opus -- -D warnings
+
+      - name: Build examples
+        run: cargo build --examples
+
+  go:
+    name: Go (go test -race + vet)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vaidcord-go
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: vaidcord-go/go.mod
+          cache-dependency-path: vaidcord-go/go.sum
+
+      - name: gofmt
+        run: |
+          UNFORMATTED=$(gofmt -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "Files need gofmt:"; echo "$UNFORMATTED"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Tests (race detector)
+        run: go test -race ./...

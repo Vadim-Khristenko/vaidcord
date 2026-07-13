@@ -6,8 +6,8 @@ languages from a single repository:
 | SDK         | Path              | Status   |
 |-------------|-------------------|----------|
 | Python      | `vaidcord-py/`    | Beta     |
-| Rust        | `vaidcord-rust/`  | Alpha    |
-| Go          | `vaidcord-go/`    | Alpha    |
+| Rust        | `vaidcord-rust/`  | Beta     |
+| Go          | `vaidcord-go/`    | Beta     |
 
 This document is the single point of truth for the framework's architecture
 and conventions. Each section ends with quick links to the more detailed,
@@ -134,7 +134,33 @@ uv run python vaidcord-py/benchmarks/model_parse.py --iterations 50000
 
 ## 4. Voice + DAVE/MLS
 
-The Python SDK now exposes the DAVE protocol as a stand-alone subpackage,
+All three SDKs now implement the Discord voice protocol end to end:
+
+* **Handshake** — voice gateway v8 (identify/resume with `seq_ack`,
+  heartbeats on a dedicated task), UDP IP discovery, protocol selection,
+  and a shared close-code policy (`resume` / `rejoin` / `fatal`) with the
+  same code table in every language.
+* **Transport encryption** — `aead_aes256_gcm_rtpsize`,
+  `aead_xchacha20_poly1305_rtpsize`, and `xsalsa20_poly1305_lite_rtpsize`
+  in **both directions**. The wire format is byte-identical across SDKs:
+  `unencrypted RTP prefix || ciphertext || 4-byte BE nonce counter`, AEAD
+  AAD = the prefix, decrypted extension words stripped. Rust and Go pin
+  compatibility with known-answer vectors generated from the Python
+  implementation.
+* **Playback** — drift-corrected 20 ms pacing (absolute deadlines, never
+  cumulative sleeps) and an `AudioSource` abstraction in each language.
+  Python additionally ships a bundled ctypes libopus binding, FFmpeg
+  PCM/Opus sources (with a pure-Python Ogg demuxer), volume transform,
+  and an `AudioPlayer` with pause/resume/stop. Go ports the Ogg demuxer
+  and an ffmpeg-pipe Opus source; Rust offers an optional `opus` cargo
+  feature backed by `audiopus`.
+* **Receive** — inbound RTP is decrypted, demultiplexed by SSRC→user
+  (fed from speaking events), and surfaced as per-user frames. Python
+  decodes to PCM with per-speaker decoders and ships sinks
+  (`WaveSink`, `BufferSink`, `CallbackSink`); Rust and Go yield
+  `(user_id, opus)` frames.
+
+The Python SDK exposes the DAVE protocol as a stand-alone subpackage,
 laid out so it can be lifted into its own library without depending on the
 rest of vaidcord:
 
@@ -158,21 +184,32 @@ multi-party MLS stack (`mls-rs`, `openmls`, libdave). The runnable demo at
 `vaidcord-py/examples/voice_dave_reference.py` walks the gateway opcode
 flow end-to-end.
 
-The Rust voice layer ships matching opcode/close-code constants and a
-`DaveIdentifyConfig` carrier so backends can be wired in once a Rust MLS
-backend lands.
+The Rust and Go voice layers ship matching opcode/close-code constants and
+`DaveIdentifyConfig` carriers so backends can be wired in once MLS
+backends land; DAVE gateway opcodes (21-31) pass through their voice
+gateway state machines.
 
 ---
 
 ## 5. Mock Discord workspace
 
 `vaidcord-py/examples/mock_server_ui.py` boots a self-hosted mock with a
-browser UI styled to look like the real Discord client (server bar,
-channel sidebar, member list, request inspector). Use it to:
+browser ops console (guild/channel sidebar, message timeline + composer,
+request inspector, gateway/chaos/rate-limit/scenario panels, live stats,
+state export/import). Use it to:
 
-* Drive your bot from a deterministic gateway.
+* Connect a real `Bot` end-to-end: the mock serves an actual `/gateway`
+  websocket (HELLO/IDENTIFY/READY, heartbeat ACKs, RESUME with event
+  replay) and `GET /gateway/bot` points at it.
 * Inspect every REST call your bot issues, in real time.
+* Exercise failure paths: opt-in rate-limit simulation with
+  `X-RateLimit-*` headers and Discord-shaped 429s, latency/error chaos
+  injection, forced op 7/op 9 gateway events.
+* Script timed scenarios and snapshot/restore the whole simulation.
 * Switch between multiple "bot profiles" without restarting.
+
+See `vaidcord-py/docs/MOCK.md` for the endpoint and control-plane
+reference.
 
 Run:
 
@@ -203,18 +240,33 @@ deterministic.
 
 ### `vaidcord-rust/`
 
-* `src/router.rs`, `src/filters.rs` — router + multi-filter machinery.
+* `src/router.rs`, `src/filters.rs` — router + multi-filter machinery,
+  nesting, per-router middleware.
+* `src/middleware.rs`, `src/dispatcher.rs` — `(event, bag, next)`
+  middleware and a standalone dispatcher with include-time chain
+  precomposition.
+* `src/bot.rs`, `src/gateway.rs`, `src/events.rs` — `Bot::builder()`
+  runner facade over a resilient gateway (dedicated heartbeat task,
+  RESUME, backoff, close-code policy, typed `Intents`).
+* `src/http.rs`, `src/client.rs` — rate-limit buckets + retrying REST
+  client with the common endpoint set.
 * `src/extract.rs` — DI bag (`ExtractBag`) + `FromHandlerArg`.
-* `src/voice.rs` — voice gateway opcode/close-code constants + DAVE
-  identify configuration.
+* `src/voice/` — voice gateway v8 payloads/state machine, UDP IP
+  discovery, RTP, all `_rtpsize` encryption modes both directions,
+  drift-corrected pacer, receiver; optional `opus` feature (audiopus).
 * `macros/src/lib.rs` — `#[on_message]` proc-macro (multi-filter, AND/OR).
 
 ### `vaidcord-go/`
 
 * `router.go`, `dispatcher.go` — router + dispatcher hot path with
   precomputed middleware chains.
-* `gateway.go`, `client.go` — gateway and REST client primitives.
-* `voice.go` — voice gateway scaffolding.
+* `bot.go`, `gateway.go`, `intents.go` — `Bot` facade over a resilient
+  gateway (heartbeat goroutine, RESUME, backoff, close-code policy).
+* `client.go`, `ratelimit.go` — rate-limited, retrying REST client.
+* `voice_*.go` — voice gateway v8 client, UDP IP discovery, RTP, all
+  `_rtpsize` encryption modes both directions, drift-corrected `Play`,
+  `Listen` receive path, pure-Go Ogg demuxer + ffmpeg Opus source.
+* `fsm.go` — FSM manager/context with pluggable storage.
 
 ---
 
@@ -233,6 +285,11 @@ The three SDKs intentionally share these guarantees:
   fields (`event.message`, `message.author`, etc.). The `raw_data` /
   payload escape hatch is available for custom parsing but should not be
   the primary access path.
+* **Voice wire compatibility.** All three SDKs produce byte-identical
+  encrypted voice packets for every `_rtpsize` mode (Rust and Go pin this
+  with known-answer vectors generated from the Python implementation) and
+  share the same close-code policy table (fatal {4001-4005, 4011, 4012,
+  4014, 4016, 4017}, rejoin {4006, 4009}, resume otherwise).
 * **Voice DAVE compatibility.** All three SDKs use the same opcode
   numeric values and treat close code 4017 as "DAVE required but
   unavailable". The Python SDK ships a working reference backend; Rust and

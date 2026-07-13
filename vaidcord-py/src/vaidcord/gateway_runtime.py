@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import time
+import zlib
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
@@ -32,6 +33,8 @@ class GatewayRuntime:
         self._heartbeat_ack_received = True
         self._resume_on_hello = False
         self._latency: float = 0.0
+        self._inflator: Any | None = None
+        self._compressed_buffer = bytearray()
 
     @property
     def ws(self) -> aiohttp.ClientWebSocketResponse | None:
@@ -64,9 +67,14 @@ class GatewayRuntime:
             extra=self._bot._log_extra(),
         )
         session = await self._bot._create_session()
-        self._ws = await session.ws_connect(
-            f"{ws_url}?v={self._bot.config.api_version}&encoding=json"
-        )
+        query = f"?v={self._bot.config.api_version}&encoding=json"
+        if getattr(self._bot.config, "compress", False):
+            query += "&compress=zlib-stream"
+            self._inflator = zlib.decompressobj()
+            self._compressed_buffer.clear()
+        else:
+            self._inflator = None
+        self._ws = await session.ws_connect(f"{ws_url}{query}")
         logger.info(
             {"event": "gateway.connected", "resume": self._resume_on_hello},
             extra=self._bot._log_extra(),
@@ -156,6 +164,98 @@ class GatewayRuntime:
         self._last_heartbeat_sent_at = time.monotonic()
         await self.send_payload({"op": 1, "d": self._bot._sequence})
 
+    async def update_presence(
+        self,
+        *,
+        status: str = "online",
+        activities: list[dict[str, Any]] | None = None,
+        afk: bool = False,
+        since: int | None = None,
+    ) -> None:
+        """Send a Presence Update (opcode 3)."""
+        await self.send_payload(
+            {
+                "op": 3,
+                "d": {
+                    "since": since,
+                    "activities": activities or [],
+                    "status": status,
+                    "afk": afk,
+                },
+            }
+        )
+
+    async def request_guild_members(
+        self,
+        guild_id: int,
+        *,
+        query: str = "",
+        limit: int = 0,
+        presences: bool = False,
+        user_ids: list[int] | None = None,
+        nonce: str | None = None,
+    ) -> None:
+        """Send a Request Guild Members (opcode 8).
+
+        Results arrive as ``GUILD_MEMBERS_CHUNK`` dispatch events.
+        """
+        data: dict[str, Any] = {
+            "guild_id": str(guild_id),
+            "limit": limit,
+            "presences": presences,
+        }
+        if user_ids is not None:
+            data["user_ids"] = [str(uid) for uid in user_ids]
+        else:
+            data["query"] = query
+        if nonce is not None:
+            data["nonce"] = nonce
+        await self.send_payload({"op": 8, "d": data})
+
+    def _inflate(self, chunk: bytes) -> dict[str, Any] | None:
+        """Feed one zlib-stream frame; returns a payload once a flush marker arrives."""
+        if self._inflator is None:
+            return None
+        self._compressed_buffer.extend(chunk)
+        if len(self._compressed_buffer) < 4 or not self._compressed_buffer.endswith(
+            b"\x00\x00\xff\xff"
+        ):
+            return None
+        decompressed = self._inflator.decompress(bytes(self._compressed_buffer))
+        self._compressed_buffer.clear()
+        return json.loads(decompressed)
+
+    async def _handle_gateway_payload(self, data: dict[str, Any]) -> bool:
+        """Process one gateway payload; returns ``True`` when the loop must exit."""
+        op = data.get("op")
+        if op == 0:
+            await self._bot._handle_dispatch(data)
+        elif op == 1:
+            await self._send_heartbeat()
+        elif op == 7:
+            await self.reconnect(resume=True)
+            return True
+        elif op == 9:
+            await asyncio.sleep(5)
+            await self.reconnect(resume=bool(data.get("d")))
+            return True
+        elif op == 10:
+            self._heartbeat_interval = data["d"]["heartbeat_interval"]
+            if self._resume_on_hello:
+                self._resume_on_hello = False
+                await self.resume()
+            else:
+                await self.identify()
+            if self._heartbeat_task:
+                self._heartbeat_task.cancel()
+            self._heartbeat_task = asyncio.create_task(self._heartbeat())
+        elif op == 11:
+            self._heartbeat_ack_received = True
+            if self._last_heartbeat_sent_at is not None:
+                self._latency = time.monotonic() - self._last_heartbeat_sent_at
+            logger.debug("Received heartbeat ACK")
+        return False
+
     async def run(self) -> None:
         if not self._ws:
             return
@@ -163,35 +263,17 @@ class GatewayRuntime:
             async for msg in self._ws:
                 if msg.type == aiohttp.WSMsgType.TEXT:
                     data = json.loads(msg.data)
-                    op = data.get("op")
-                    if op == 0:
-                        await self._bot._handle_dispatch(data)
-                    elif op == 1:
-                        await self._send_heartbeat()
-                    elif op == 7:
-                        await self.reconnect(resume=True)
-                        return
-                    elif op == 9:
-                        await asyncio.sleep(5)
-                        await self.reconnect(resume=bool(data.get("d")))
-                        return
-                    elif op == 10:
-                        self._heartbeat_interval = data["d"]["heartbeat_interval"]
-                        if self._resume_on_hello:
-                            self._resume_on_hello = False
-                            await self.resume()
-                        else:
-                            await self.identify()
-                        if self._heartbeat_task:
-                            self._heartbeat_task.cancel()
-                        self._heartbeat_task = asyncio.create_task(self._heartbeat())
-                    elif op == 11:
-                        self._heartbeat_ack_received = True
-                        if self._last_heartbeat_sent_at is not None:
-                            self._latency = time.monotonic() - self._last_heartbeat_sent_at
-                        logger.debug("Received heartbeat ACK")
+                elif msg.type == aiohttp.WSMsgType.BINARY and self._inflator is not None:
+                    inflated = self._inflate(msg.data)
+                    if inflated is None:
+                        continue
+                    data = inflated
                 elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                     break
+                else:
+                    continue
+                if await self._handle_gateway_payload(data):
+                    return
         except asyncio.CancelledError:
             logger.debug("Gateway runtime cancelled")
             return

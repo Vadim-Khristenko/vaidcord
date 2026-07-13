@@ -2,6 +2,7 @@ package vaidcord
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"runtime"
@@ -11,18 +12,32 @@ import (
 type EventType string
 
 const (
-	EventReady         EventType = "READY"
-	EventMessageCreate EventType = "MESSAGE_CREATE"
+	EventReady             EventType = "READY"
+	EventResumed           EventType = "RESUMED"
+	EventMessageCreate     EventType = "MESSAGE_CREATE"
+	EventMessageUpdate     EventType = "MESSAGE_UPDATE"
+	EventMessageDelete     EventType = "MESSAGE_DELETE"
+	EventGuildCreate       EventType = "GUILD_CREATE"
+	EventInteractionCreate EventType = "INTERACTION_CREATE"
 )
 
 type Event struct {
-	Type    EventType
-	Ready   *ReadyEvent
-	Message *Message
+	Type        EventType
+	Ready       *ReadyEvent
+	Message     *Message
+	Deleted     *DeletedMessage
+	Guild       *Guild
+	Interaction *Interaction
+	// Raw is the untouched dispatch payload — the escape hatch for events
+	// without a typed model (Raw is populated for every event).
+	Raw json.RawMessage
 }
 
 type ReadyEvent struct {
-	User User
+	User             User   `json:"user"`
+	SessionID        string `json:"session_id,omitempty"`
+	ResumeGatewayURL string `json:"resume_gateway_url,omitempty"`
+	ApplicationID    string `json:"-"`
 }
 
 type EventMeta struct {
@@ -38,6 +53,8 @@ type Filter func(Event) bool
 type MessageHandler func(context.Context, Message) error
 type MessageFilter func(Message) bool
 type ReadyHandler func(context.Context, ReadyEvent) error
+type InteractionHandler func(context.Context, Interaction) error
+type InteractionFilter func(Interaction) bool
 
 type route struct {
 	meta        EventMeta
@@ -107,6 +124,71 @@ func (r *Router) OnMessageCreate(filters ...MessageFilter) *MessageRouteBuilder 
 
 func (r *Router) Message(filters ...MessageFilter) *MessageRouteBuilder {
 	return r.OnMessageCreate(filters...)
+}
+
+// On registers a route for an arbitrary gateway event type. The handler
+// receives the generic Event; use Event.Raw for events without typed models.
+func (r *Router) On(event EventType, filters ...Filter) *RouteBuilder {
+	return &RouteBuilder{router: r, event: event, filters: filters}
+}
+
+func (r *Router) OnMessageUpdate(filters ...MessageFilter) *MessageRouteBuilder {
+	return &MessageRouteBuilder{route: &RouteBuilder{
+		router:  r,
+		event:   EventMessageUpdate,
+		filters: wrapMessageFilters(filters),
+	}}
+}
+
+func (r *Router) OnInteractionCreate(filters ...InteractionFilter) *InteractionRouteBuilder {
+	wrapped := make([]Filter, 0, len(filters))
+	for _, filter := range filters {
+		filter := filter
+		wrapped = append(wrapped, func(event Event) bool {
+			return event.Interaction != nil && filter(*event.Interaction)
+		})
+	}
+	return &InteractionRouteBuilder{route: &RouteBuilder{
+		router:  r,
+		event:   EventInteractionCreate,
+		filters: wrapped,
+	}}
+}
+
+type InteractionRouteBuilder struct {
+	route *RouteBuilder
+}
+
+func (b *InteractionRouteBuilder) Name(name string) *InteractionRouteBuilder {
+	b.route.Name(name)
+	return b
+}
+
+func (b *InteractionRouteBuilder) Handle(handler InteractionHandler) {
+	b.route.Handle(func(ctx context.Context, event Event) error {
+		if event.Interaction == nil {
+			return nil
+		}
+		return handler(ctx, *event.Interaction)
+	})
+}
+
+// SlashCommand filters application-command interactions by command name.
+func SlashCommand(name string) InteractionFilter {
+	return func(interaction Interaction) bool {
+		return interaction.Type == InteractionTypeApplicationCommand &&
+			interaction.Data != nil &&
+			strings.EqualFold(interaction.Data.Name, name)
+	}
+}
+
+// ComponentID filters message-component interactions by custom id.
+func ComponentID(customID string) InteractionFilter {
+	return func(interaction Interaction) bool {
+		return interaction.Type == InteractionTypeMessageComponent &&
+			interaction.Data != nil &&
+			interaction.Data.CustomID == customID
+	}
 }
 
 func (r *Router) OnMessage(handler MessageHandler, filters ...MessageFilter) {

@@ -19,6 +19,8 @@ type PollingOption func(*pollingConfig)
 
 type pollingConfig struct {
 	dropPendingUpdates bool
+	intents            Intents
+	gatewayOptions     []GatewayOption
 }
 
 func NewDispatcher(options ...DispatcherOption) *Dispatcher {
@@ -40,6 +42,20 @@ func WithErrorHandler(handler ErrorHandler) DispatcherOption {
 func WithDropPendingUpdates(enabled bool) PollingOption {
 	return func(config *pollingConfig) {
 		config.dropPendingUpdates = enabled
+	}
+}
+
+// WithIntents selects the gateway intents used by StartPolling.
+func WithIntents(intents Intents) PollingOption {
+	return func(config *pollingConfig) {
+		config.intents = intents
+	}
+}
+
+// WithGatewayOptions forwards options to the gateway created by StartPolling.
+func WithGatewayOptions(options ...GatewayOption) PollingOption {
+	return func(config *pollingConfig) {
+		config.gatewayOptions = append(config.gatewayOptions, options...)
 	}
 }
 
@@ -90,15 +106,23 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event Event) error {
 	return nil
 }
 
+// StartPolling connects the client to the Discord gateway and dispatches
+// every typed event into the registered routers until ctx is cancelled or a
+// fatal gateway close code is received. It is the low-level equivalent of
+// Bot.Run for callers who already own a *Client.
 func (d *Dispatcher) StartPolling(ctx context.Context, bot *Client, options ...PollingOption) error {
-	config := pollingConfig{}
+	config := pollingConfig{intents: IntentsDefault | IntentMessageContent}
 	for _, option := range options {
 		option(&config)
 	}
-	_ = bot
-	_ = config
-	<-ctx.Done()
-	return ctx.Err()
+	gateway := NewGateway(bot, config.intents, config.gatewayOptions...)
+	return gateway.Run(ctx, func(ctx context.Context, dispatch GatewayDispatch) {
+		event, ok := ParseDispatch(dispatch)
+		if !ok {
+			return
+		}
+		_ = d.Dispatch(ctx, event)
+	})
 }
 
 func defaultErrorHandler(_ context.Context, meta EventMeta, err error) {

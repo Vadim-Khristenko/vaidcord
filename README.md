@@ -1,23 +1,39 @@
 # VaidCord Community SDK
 
+[![CI](https://github.com/Vadim-Khristenko/vaidcord/actions/workflows/ci.yml/badge.svg)](https://github.com/Vadim-Khristenko/vaidcord/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/vaidcord?label=PyPI&color=3775A9)](https://pypi.org/project/vaidcord/)
+[![crates.io](https://img.shields.io/crates/v/vaidcord?label=crates.io&color=E6803E)](https://crates.io/crates/vaidcord)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Vadim-Khristenko/vaidcord/vaidcord-go.svg)](https://pkg.go.dev/github.com/Vadim-Khristenko/vaidcord/vaidcord-go)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 VaidCord is a community-driven Discord SDK initiative designed to provide a clean, modern developer experience across multiple languages.
 
 ## Repository layout
 
-- `vaidcord-py/` — production Python SDK (`import vaidcord`).
-- `vaidcord-go/` — Go SDK placeholder.
-- `vaidcord-rust/` — Rust SDK placeholder.
+- `vaidcord-py/` — production Python SDK (`import vaidcord`): full
+  Discord API v10 REST coverage, resilient gateway (RESUME, zlib-stream
+  compression), complete voice protocol (playback **and** receive, all
+  encryption modes, bundled libopus binding), FSM, and a mock Discord
+  server with a real websocket gateway and browser ops console.
+- `vaidcord-go/` — Go SDK: Bot facade, resilient gateway, rate-limited
+  REST client, full voice transport (wire-compatible with Python), FSM.
+- `vaidcord-rust/` — Rust SDK: middleware + dispatcher, `Bot::builder()`
+  runner, resilient gateway, rate-limited REST client, full voice
+  transport (wire-compatible with Python, optional `opus` feature).
 
 ## Vision
 
 - **Developer-first architecture** inspired by mature bot frameworks.
 - **Composable routing** with filter-driven handler dispatch.
 - **Stateful workflows** with FSM middleware and pluggable storage.
-- **Testability by default** with first-class mock components.
+- **Voice as a first-class citizen** — bots can join, play (files or live
+  streams), and listen, with an identical wire format across languages.
+- **Testability by default** with first-class mock components, including
+  a self-hosted mock Discord (REST + gateway websocket + chaos tools).
 
-Today the Python SDK is the most complete; the Rust and Go SDKs share the
-same router / filter / dispatcher contract and grow toward parity with each
-release.
+The Python SDK is the most complete; the Rust and Go SDKs share the same
+router / filter / dispatcher contract and the same voice wire format,
+verified by cross-language known-answer tests.
 
 ## Documentation
 

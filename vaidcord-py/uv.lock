@@ -1042,7 +1042,7 @@ wheels = [
 
 [[package]]
 name = "vaidcord"
-version = "0.1.0b3"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -1059,8 +1059,10 @@ all = [
     { name = "redis" },
 ]
 dev = [
+    { name = "cryptography" },
     { name = "flake8" },
     { name = "mypy" },
+    { name = "pynacl" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -1105,6 +1107,7 @@ requires-dist = [
     { name = "asyncpg", marker = "extra == 'fsm-backends'", specifier = ">=0.30.0" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.30.0" },
     { name = "cryptography", marker = "extra == 'all'", specifier = ">=42.0.0" },
+    { name = "cryptography", marker = "extra == 'dev'", specifier = ">=42.0.0" },
     { name = "cryptography", marker = "extra == 'voice'", specifier = ">=42.0.0" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=7.1.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11.2" },
@@ -1114,6 +1117,7 @@ requires-dist = [
     { name = "pymongo", marker = "extra == 'fsm-backends'", specifier = ">=4.9.0" },
     { name = "pymongo", marker = "extra == 'mongo'", specifier = ">=4.9.0" },
     { name = "pynacl", marker = "extra == 'all'", specifier = ">=1.5.0" },
+    { name = "pynacl", marker = "extra == 'dev'", specifier = ">=1.5.0" },
     { name = "pynacl", marker = "extra == 'voice'", specifier = ">=1.5.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },

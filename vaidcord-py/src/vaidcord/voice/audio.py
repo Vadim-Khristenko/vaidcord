@@ -21,14 +21,20 @@ class AudioBackendStatus:
     opuslib: bool
     pynacl: bool
     cryptography: bool
+    libopus: bool = False
+
+    @property
+    def opus_ready(self) -> bool:
+        """Opus encoding is available via the bundled ctypes binding or opuslib."""
+        return self.libopus or self.opuslib
 
     @property
     def missing_playback(self) -> tuple[str, ...]:
         missing: list[str] = []
         if not self.ffmpeg:
             missing.append("ffmpeg")
-        if not self.opuslib:
-            missing.append("opuslib")
+        if not self.opus_ready:
+            missing.append("libopus")
         return tuple(missing)
 
     @property
@@ -54,16 +60,20 @@ class AudioBackendStatus:
         missing = ", ".join(self.missing_playback)
         raise MissingVoiceDependency(
             f"Voice file playback requires missing dependency/dependencies: {missing}. "
-            "Install optional voice deps with `pip install 'vaidcord[voice]'` and install ffmpeg in PATH."
+            "Install the libopus system library (e.g. `apt install libopus0`) and ffmpeg in PATH; "
+            "`pip install 'vaidcord[voice]'` covers the Python-side extras."
         )
 
 
 def check_voice_dependencies() -> AudioBackendStatus:
+    from . import opus as opus_binding
+
     return AudioBackendStatus(
         ffmpeg=shutil.which("ffmpeg") is not None,
         opuslib=importlib.util.find_spec("opuslib") is not None,
         pynacl=importlib.util.find_spec("nacl") is not None,
         cryptography=importlib.util.find_spec("cryptography") is not None,
+        libopus=opus_binding.is_loaded(),
     )
 
 
@@ -141,6 +151,41 @@ async def iter_pcm_s16le_frames(
             raise AudioBackendError(f"ffmpeg failed while decoding audio: {message or process.returncode}")
 
 
+def _make_opus_encoder(
+    sample_rate: int, channels: int, application: str, bitrate_kbps: int
+):
+    """Build an ``encode(pcm, frame_samples) -> bytes`` callable.
+
+    Prefers the bundled ctypes binding to libopus; falls back to the
+    third-party ``opuslib`` wrapper when the shared library cannot be
+    located by ctypes but opuslib manages to load it its own way.
+    """
+    from . import opus as opus_binding
+
+    if opus_binding.is_loaded():
+        application_map = {
+            "voip": opus_binding.APPLICATION_VOIP,
+            "audio": opus_binding.APPLICATION_AUDIO,
+            "restricted_lowdelay": opus_binding.APPLICATION_LOWDELAY,
+        }
+        encoder = opus_binding.Encoder(
+            application=application_map.get(application, opus_binding.APPLICATION_AUDIO),
+            bitrate_kbps=bitrate_kbps,
+            sample_rate=sample_rate,
+            channels=channels,
+        )
+        return encoder.encode
+    try:
+        import opuslib  # type: ignore[import-not-found]
+    except ImportError as error:  # pragma: no cover - dependency gate
+        raise MissingVoiceDependency(
+            "Opus encoding requires the libopus system library "
+            "(e.g. `apt install libopus0`) or the `opuslib` package."
+        ) from error
+    encoder = opuslib.Encoder(sample_rate, channels, application)
+    return encoder.encode
+
+
 async def iter_opus_frames(
     path: str,
     *,
@@ -148,23 +193,17 @@ async def iter_opus_frames(
     sample_rate: int = 48_000,
     channels: int = 2,
     application: str = "audio",
+    bitrate_kbps: int = 128,
 ) -> AsyncIterator[bytes]:
-    try:
-        import opuslib  # type: ignore[import-not-found]
-    except ImportError as error:  # pragma: no cover - dependency gate
-        raise MissingVoiceDependency(
-            "Opus encoding requires `opuslib`. Install optional voice deps with `pip install 'vaidcord[voice]'`."
-        ) from error
-
+    encode = _make_opus_encoder(sample_rate, channels, application, bitrate_kbps)
     ensure_voice_playback_dependencies()
     frame_samples = sample_rate * frame_duration_ms // 1000
-    encoder = opuslib.Encoder(sample_rate, channels, application)
     async for pcm in iter_pcm_s16le_frames(
         path,
         frame_duration_ms=frame_duration_ms,
         sample_rate=sample_rate,
         channels=channels,
     ):
-        packet = encoder.encode(pcm, frame_samples)
+        packet = encode(pcm, frame_samples)
         if packet:
             yield packet

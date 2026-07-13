@@ -1,0 +1,6 @@
+Middleware + standalone Dispatcher with precomposed chains (O(1) hot path)
+Resilient gateway: RESUME, backoff, close-code policy, typed Intents
+Voice transport wire-compatible with vaidcord-py (all 3 cipher modes)
+Rate-limited, retrying REST client with the common endpoint set
+Bot::builder() runner facade wiring gateway dispatch into routers
+Optional `opus` feature for native Opus encode/decode via libopus

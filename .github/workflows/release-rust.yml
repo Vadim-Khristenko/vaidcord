@@ -1,0 +1,213 @@
+name: Publish Rust crate to crates.io
+
+on:
+  push:
+    tags:
+      - "rust-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release. Empty = rust-v{Cargo.toml version}"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-vaidcord-rust-${{ github.ref_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test vaidcord-rust before release
+    runs-on: ubuntu-latest
+    outputs:
+      passed: ${{ steps.count.outputs.passed }}
+    defaults:
+      run:
+        working-directory: vaidcord-rust
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install libopus
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends libopus-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: vaidcord-rust
+
+      - name: Tests (default + opus features)
+        id: count
+        run: |
+          cargo test 2>&1 | tee test.log
+          cargo test --features opus 2>&1 | tee -a test.log
+          PASSED=$(grep -Eo '[0-9]+ passed' test.log | grep -Eo '[0-9]+' | sort -rn | head -1 || echo 0)
+          echo "passed=${PASSED}" >> "$GITHUB_OUTPUT"
+
+      - name: Clippy
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo clippy --all-targets --features opus -- -D warnings
+
+  publish:
+    name: Publish vaidcord to crates.io
+    runs-on: ubuntu-latest
+    needs: test
+
+    environment:
+      name: cargo
+      url: https://crates.io/crates/vaidcord
+
+    permissions:
+      contents: write   # create GitHub Release + push release card
+
+    defaults:
+      run:
+        working-directory: vaidcord-rust
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install libopus
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends libopus-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate release tag matches crate version
+        id: meta
+        run: |
+          VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(next(p['version'] for p in d['packages'] if p['name']=='vaidcord'))")
+          MACROS_VERSION=$(cargo metadata --no-deps --format-version 1 --manifest-path macros/Cargo.toml \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(next(p['version'] for p in d['packages'] if p['name']=='vaidcord-macros'))")
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+            [ -z "$TAG" ] && TAG="rust-v${VERSION}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [ "$TAG" != "rust-v${VERSION}" ]; then
+            echo "Tag ${TAG} does not match vaidcord-rust version ${VERSION} (expected rust-v${VERSION})" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "macros-version=${MACROS_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish vaidcord-macros
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set +e
+          OUTPUT=$(cargo publish --manifest-path macros/Cargo.toml 2>&1)
+          STATUS=$?
+          set -e
+          echo "$OUTPUT"
+          if [ $STATUS -ne 0 ]; then
+            if echo "$OUTPUT" | grep -qi "already exists\|already uploaded"; then
+              echo "vaidcord-macros ${{ steps.meta.outputs.macros-version }} is already on crates.io; continuing."
+            else
+              exit $STATUS
+            fi
+          fi
+
+      - name: Wait for vaidcord-macros in the sparse index
+        run: |
+          NAME="vaidcord-macros"
+          PREFIX="${NAME:0:2}/${NAME:2:2}"
+          for attempt in $(seq 1 30); do
+            if curl -sf "https://index.crates.io/${PREFIX}/${NAME}" | grep -q "\"vers\":\"${{ steps.meta.outputs.macros-version }}\""; then
+              echo "index has vaidcord-macros ${{ steps.meta.outputs.macros-version }}"
+              exit 0
+            fi
+            echo "waiting for index (attempt ${attempt})..."
+            sleep 10
+          done
+          echo "vaidcord-macros never appeared in the sparse index" >&2
+          exit 1
+
+      - name: Publish vaidcord
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if cargo publish; then
+              exit 0
+            fi
+            echo "publish failed (attempt ${attempt}); retrying in 30s..."
+            sleep 30
+          done
+          echo "cargo publish failed after retries" >&2
+          exit 1
+
+      - name: Generate release card
+        working-directory: .
+        run: |
+          PREV=$(git tag --list 'rust-v*' --sort=-creatordate --merged '${{ steps.meta.outputs.tag }}^' | grep -v "^${{ steps.meta.outputs.tag }}$" | head -1 || echo "")
+          RANGE="${{ steps.meta.outputs.tag }}"
+          [ -n "$PREV" ] && RANGE="${PREV}..${{ steps.meta.outputs.tag }}"
+          COMMITS=$(git log --no-merges --oneline "$RANGE" -- vaidcord-rust | wc -l | tr -d ' ')
+          ARGS=()
+          if [ -f vaidcord-rust/.release-highlights ]; then
+            while IFS= read -r line && [ "${#ARGS[@]}" -lt 8 ]; do
+              [ -n "$line" ] && ARGS+=(--highlight "$line")
+            done < vaidcord-rust/.release-highlights
+          fi
+          python3 .github/scripts/release_card.py \
+            --package vaidcord --version "${{ steps.meta.outputs.version }}" \
+            --language Rust --tag "${{ steps.meta.outputs.tag }}" \
+            --stat "${{ needs.test.outputs.passed }}=tests passing" \
+            --stat "${COMMITS}=commits in release" \
+            --stat "3=cipher modes" \
+            --stat "0=clippy warnings" \
+            "${ARGS[@]}" \
+            --out release-card.svg
+
+      - name: Publish release card
+        id: card
+        working-directory: .
+        run: bash .github/scripts/publish_card.sh release-card.svg "${{ steps.meta.outputs.tag }}"
+
+      - name: Generate release notes
+        working-directory: .
+        run: |
+          ARGS=()
+          if [ -f vaidcord-rust/.release-highlights ]; then
+            while IFS= read -r line; do
+              [ -n "$line" ] && ARGS+=(--highlight "$line")
+            done < vaidcord-rust/.release-highlights
+          fi
+          python3 .github/scripts/release_notes.py \
+            --package vaidcord-rust --version "${{ steps.meta.outputs.version }}" \
+            --tag "${{ steps.meta.outputs.tag }}" --language rust \
+            --tag-pattern "rust-v*" --path vaidcord-rust --path UNITED.md \
+            --card-url "${{ steps.card.outputs.card-url }}" \
+            "${ARGS[@]}" \
+            --out release-notes.md
+
+      - name: Create GitHub Release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "VAIDCORD-RUST ${{ steps.meta.outputs.version }}" --notes-file release-notes.md
+            gh release upload "$TAG" release-card.svg --clobber
+          else
+            gh release create "$TAG" release-card.svg \
+              --title "VAIDCORD-RUST ${{ steps.meta.outputs.version }}" \
+              --notes-file release-notes.md --verify-tag
+          fi

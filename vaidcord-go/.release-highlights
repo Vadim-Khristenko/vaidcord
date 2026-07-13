@@ -1,0 +1,6 @@
+Bot facade: resilient gateway to typed events to dispatcher
+Voice transport wire-compatible with vaidcord-py (all 3 cipher modes)
+Rate-limited, retrying REST client with context support
+Pure-Go Ogg demuxer + ffmpeg-pipe Opus audio source
+FSM with user/channel/guild-scoped in-memory storage
+RESUME, exponential backoff and close-code reconnect policy
