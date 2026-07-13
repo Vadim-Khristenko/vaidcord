@@ -1,0 +1,40 @@
+name: Cut release
+
+# Push a branch named release/cut/<anything> containing a `.release-cut`
+# manifest to fan out the per-package release workflows. Each manifest line
+# is `<workflow file> <tag>`; blank lines and `#` comments are skipped.
+#
+# This exists so releases can be cut from environments that can push
+# branches but not tags: the dispatched workflows create the tags
+# themselves via `gh release create --target`.
+
+on:
+  push:
+    branches:
+      - "release/cut/**"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    name: Dispatch release workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Fan out per-package release workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f .release-cut ]; then
+            echo "No .release-cut manifest on this branch; nothing to do."
+            exit 0
+          fi
+          while read -r workflow tag; do
+            [ -z "$workflow" ] && continue
+            case "$workflow" in "#"*) continue ;; esac
+            echo "dispatching ${workflow} with tag=${tag}"
+            gh workflow run "$workflow" --ref main -f tag="$tag" --repo "$GITHUB_REPOSITORY"
+          done < .release-cut
