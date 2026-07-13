@@ -87,11 +87,22 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve git reference for history
+        id: ref
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "ref=${TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Generate release card
         run: |
-          PREV=$(git tag --list 'vaidcord-go/v*' --sort=-creatordate --merged '${{ steps.meta.outputs.tag }}^' | grep -v "^${{ steps.meta.outputs.tag }}$" | head -1 || echo "")
-          RANGE="${{ steps.meta.outputs.tag }}"
-          [ -n "$PREV" ] && RANGE="${PREV}..${{ steps.meta.outputs.tag }}"
+          REF='${{ steps.ref.outputs.ref }}'
+          PREV=$(git tag --list 'vaidcord-go/v*' --sort=-creatordate --merged "${REF}^" 2>/dev/null | grep -v "^${{ steps.meta.outputs.tag }}$" | head -1 || echo "")
+          RANGE="$REF"
+          [ -n "$PREV" ] && RANGE="${PREV}..${REF}"
           COMMITS=$(git log --no-merges --oneline "$RANGE" -- vaidcord-go | wc -l | tr -d ' ')
           ARGS=()
           if [ -f vaidcord-go/.release-highlights ]; then
@@ -123,7 +134,7 @@ jobs:
           fi
           python3 .github/scripts/release_notes.py \
             --package vaidcord-go --version "${{ steps.meta.outputs.version }}" \
-            --tag "${{ steps.meta.outputs.tag }}" --language go \
+            --tag "${{ steps.ref.outputs.ref }}" --language go \
             --tag-pattern "vaidcord-go/v*" --path vaidcord-go --path UNITED.md \
             --card-url "${{ steps.card.outputs.card-url }}" \
             "${ARGS[@]}" \
@@ -138,9 +149,10 @@ jobs:
             gh release edit "$TAG" --title "VAIDCORD-GO ${{ steps.meta.outputs.version }}" --notes-file release-notes.md
             gh release upload "$TAG" release-card.svg --clobber
           else
+            # --target creates the tag when it does not exist yet (dispatch mode).
             gh release create "$TAG" release-card.svg \
               --title "VAIDCORD-GO ${{ steps.meta.outputs.version }}" \
-              --notes-file release-notes.md --verify-tag
+              --notes-file release-notes.md --target "${GITHUB_SHA}"
           fi
 
       - name: Request Go module proxy indexing

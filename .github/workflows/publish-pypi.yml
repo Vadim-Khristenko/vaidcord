@@ -137,12 +137,24 @@ jobs:
         run: |
           python -m twine check dist/*
 
+      - name: Resolve git reference for history
+        id: ref
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "ref=${TAG}" >> "$GITHUB_OUTPUT"
+          else
+            # workflow_dispatch before the tag exists: use the built commit.
+            echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Generate release card
         working-directory: .
         run: |
-          PREV=$(git describe --tags --abbrev=0 '${{ steps.meta.outputs.tag }}^' 2>/dev/null || echo "")
-          RANGE="${{ steps.meta.outputs.tag }}"
-          [ -n "$PREV" ] && RANGE="${PREV}..${{ steps.meta.outputs.tag }}"
+          REF='${{ steps.ref.outputs.ref }}'
+          PREV=$(git describe --tags --abbrev=0 "${REF}^" 2>/dev/null || echo "")
+          RANGE="$REF"
+          [ -n "$PREV" ] && RANGE="${PREV}..${REF}"
           COMMITS=$(git log --no-merges --oneline "$RANGE" -- vaidcord-py | wc -l | tr -d ' ')
           ARGS=()
           if [ -f vaidcord-py/.release-highlights ]; then
@@ -176,7 +188,7 @@ jobs:
           fi
           python .github/scripts/release_notes.py \
             --package vaidcord --version "${{ steps.meta.outputs.version }}" \
-            --tag "${{ steps.meta.outputs.tag }}" --language python \
+            --tag "${{ steps.ref.outputs.ref }}" --language python \
             --tag-pattern "v*" --tag-pattern "py-v*" --path vaidcord-py --path UNITED.md \
             --card-url "${{ steps.card.outputs.card-url }}" \
             "${ARGS[@]}" \
@@ -194,12 +206,14 @@ jobs:
             gh release edit "$TAG" --title "VAIDCORD-PY ${{ steps.meta.outputs.version }}" --notes-file release-notes.md "${FLAGS[@]}"
             gh release upload "$TAG" vaidcord-py/dist/* release-card.svg --clobber
           else
+            # --target creates the tag when it does not exist yet (dispatch mode).
             gh release create "$TAG" vaidcord-py/dist/* release-card.svg \
               --title "VAIDCORD-PY ${{ steps.meta.outputs.version }}" \
-              --notes-file release-notes.md --verify-tag "${FLAGS[@]}"
+              --notes-file release-notes.md --target "${GITHUB_SHA}" "${FLAGS[@]}"
           fi
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: vaidcord-py/dist
+          skip-existing: true

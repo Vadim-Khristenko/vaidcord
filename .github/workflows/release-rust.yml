@@ -143,7 +143,16 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           for attempt in 1 2 3 4 5; do
-            if cargo publish; then
+            set +e
+            OUTPUT=$(cargo publish 2>&1)
+            STATUS=$?
+            set -e
+            echo "$OUTPUT"
+            if [ $STATUS -eq 0 ]; then
+              exit 0
+            fi
+            if echo "$OUTPUT" | grep -qi "already exists\|already uploaded"; then
+              echo "vaidcord ${{ steps.meta.outputs.version }} is already on crates.io; continuing."
               exit 0
             fi
             echo "publish failed (attempt ${attempt}); retrying in 30s..."
@@ -152,12 +161,24 @@ jobs:
           echo "cargo publish failed after retries" >&2
           exit 1
 
+      - name: Resolve git reference for history
+        id: ref
+        working-directory: .
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "ref=${TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Generate release card
         working-directory: .
         run: |
-          PREV=$(git tag --list 'rust-v*' --sort=-creatordate --merged '${{ steps.meta.outputs.tag }}^' | grep -v "^${{ steps.meta.outputs.tag }}$" | head -1 || echo "")
-          RANGE="${{ steps.meta.outputs.tag }}"
-          [ -n "$PREV" ] && RANGE="${PREV}..${{ steps.meta.outputs.tag }}"
+          REF='${{ steps.ref.outputs.ref }}'
+          PREV=$(git tag --list 'rust-v*' --sort=-creatordate --merged "${REF}^" 2>/dev/null | grep -v "^${{ steps.meta.outputs.tag }}$" | head -1 || echo "")
+          RANGE="$REF"
+          [ -n "$PREV" ] && RANGE="${PREV}..${REF}"
           COMMITS=$(git log --no-merges --oneline "$RANGE" -- vaidcord-rust | wc -l | tr -d ' ')
           ARGS=()
           if [ -f vaidcord-rust/.release-highlights ]; then
@@ -191,7 +212,7 @@ jobs:
           fi
           python3 .github/scripts/release_notes.py \
             --package vaidcord-rust --version "${{ steps.meta.outputs.version }}" \
-            --tag "${{ steps.meta.outputs.tag }}" --language rust \
+            --tag "${{ steps.ref.outputs.ref }}" --language rust \
             --tag-pattern "rust-v*" --path vaidcord-rust --path UNITED.md \
             --card-url "${{ steps.card.outputs.card-url }}" \
             "${ARGS[@]}" \
@@ -207,7 +228,8 @@ jobs:
             gh release edit "$TAG" --title "VAIDCORD-RUST ${{ steps.meta.outputs.version }}" --notes-file release-notes.md
             gh release upload "$TAG" release-card.svg --clobber
           else
+            # --target creates the tag when it does not exist yet (dispatch mode).
             gh release create "$TAG" release-card.svg \
               --title "VAIDCORD-RUST ${{ steps.meta.outputs.version }}" \
-              --notes-file release-notes.md --verify-tag
+              --notes-file release-notes.md --target "${GITHUB_SHA}"
           fi
